@@ -1,0 +1,27 @@
+# dsh bundle patch: inserts this plugin's loader entry into a profile layer.
+# Bundle patches add rows via `insert` blocks; top-level rows would be treated
+# as id-targeted overrides of EXISTING entries ("entry not found" otherwise).
+#
+# The plugin is strictly READ-ONLY: it inspects configuration, session files,
+# plugin sources, paths, network bindings and environment variables, and
+# never writes, deletes or executes anything.
+
+- insert:
+    - id: security-audit
+      name: 'dsh-security-audit'
+
+# All plugin config keys are optional; defaults are applied by the plugin.
+#   config:
+#     scanTimeoutMs: 100        # cooperative scan budget (ms); on expiry -> "allow" + warning
+#     scanMaxLength: 200000     # hard cap on scanned text length
+#     cacheSize: 512            # LRU entries for identical scan inputs
+#     blockThreshold: 0.8
+#     reviewThreshold: 0.5
+#     allowlist: []             # rule ids always downgraded to "allow" (appeal channel)
+#     maskChar: "*"
+#     logFile: ""               # empty = structured JSON lines go to ctx.logger
+#     classifier:               # optional model layer (see README)
+#       adapter: ollama
+#       endpoint: http://127.0.0.1:11434/api/generate
+#       model: llama3-guard
+#       timeoutMs: 1500

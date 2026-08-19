@@ -1,0 +1,16 @@
+node_modules/
+.npm-cache/
+.env*
+*.log
+*.tmp
+*.tgz
+coverage/
+dist/
+build/
+out/
+*.pem
+*.key
+.DSH_*
+.idea/
+.vscode/
+*.local

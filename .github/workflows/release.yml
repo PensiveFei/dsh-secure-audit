@@ -1,0 +1,33 @@
+name: Release
+
+# Push a tag like v0.1.0: tests run, the npm tarball is built and attached
+# to the GitHub Release, and a draft release opens for notes.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - name: Build tarball
+        run: npm pack
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: false
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: '*.tgz'

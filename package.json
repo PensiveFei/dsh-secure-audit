@@ -1,0 +1,60 @@
+{
+  "name": "dsh-security-audit",
+  "version": "0.1.0",
+  "description": "Read-only security & compliance toolkit for DeepSeek Harness: prompt-injection detection (rule engine with a pluggable model classifier), Chinese-PII redaction, and a local configuration security audit that emits redacted, reproducible risk reports.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./lib/*": "./lib/*.js",
+    "./skills/*": "./skills/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib",
+    "skills",
+    "examples",
+    "docs",
+    "cordis.patch.yml",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "lint": "node scripts/lint.mjs",
+    "test": "node --test",
+    "test:watch": "node --test --watch"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.7"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.7"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "security",
+    "audit",
+    "prompt-injection",
+    "jailbreak",
+    "pii",
+    "redaction",
+    "compliance"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PensiveFei/dsh-security-audit.git"
+  }
+}
