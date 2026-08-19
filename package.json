@@ -1,5 +1,5 @@
 {
-  "name": "dsh-security-audit",
+  "name": "dsh-secure-audit",
   "version": "0.1.0",
   "description": "Read-only security & compliance toolkit for DeepSeek Harness: prompt-injection detection (rule engine with a pluggable model classifier), Chinese-PII redaction, and a local configuration security audit that emits redacted, reproducible risk reports.",
   "type": "module",
@@ -55,6 +55,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/PensiveFei/dsh-security-audit.git"
+    "url": "https://github.com/PensiveFei/dsh-secure-audit.git"
   }
 }

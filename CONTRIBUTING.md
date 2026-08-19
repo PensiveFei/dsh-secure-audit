@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for considering a contribution to `dsh-security-audit`. This is a
+Thanks for considering a contribution to `dsh-secure-audit`. This is a
 security tool; the review bar is intentionally higher than for a typical
 library.
 

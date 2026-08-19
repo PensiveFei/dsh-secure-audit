@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with dsh-security-audit
+about: Report a problem with dsh-secure-audit
 title: ''
 labels: bug
 assignees: ''

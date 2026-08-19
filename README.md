@@ -1,4 +1,4 @@
-# dsh-security-audit
+# dsh-secure-audit
 
 > **Disclaimer.** This is an **unofficial third-party tool**. It is not
 > affiliated with, endorsed by, or sponsored by DeepSeek. "DeepSeek" and
@@ -32,13 +32,13 @@ The plugin has no build step and no install scripts. `index.js` and `lib/` are t
 
 ```bash
 # from a tarball (attached to every GitHub release)
-dsh plugin add ./dsh-security-audit-0.1.0.tgz
+dsh plugin add ./dsh-secure-audit-0.1.0.tgz
 
 # from git source (no build runs; pin the commit)
-dsh plugin add github:PensiveFei/dsh-security-audit#<commit>
+dsh plugin add github:PensiveFei/dsh-secure-audit#<commit>
 ```
 
-> **npm:** not published yet. The `dsh plugin add dsh-security-audit` npm form will work once the package lands on the registry; until then use the tarball or git source above.
+> **npm:** not published yet. The `dsh plugin add dsh-secure-audit` npm form will work once the package lands on the registry; until then use the tarball or git source above.
 
 Notes for git installs:
 
@@ -233,7 +233,7 @@ Local `--patch` development: when the patch references this plugin by absolute p
 ## Publishing to GitHub
 
 ```bash
-gh repo create PensiveFei/dsh-security-audit --public --source . --push
+gh repo create PensiveFei/dsh-secure-audit --public --source . --push
 gh repo edit --add-topic dsh-plugin
 ```
 

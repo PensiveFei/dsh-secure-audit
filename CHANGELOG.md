@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `dsh-security-audit` are documented here.
+All notable changes to `dsh-secure-audit` are documented here.
 
 Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions

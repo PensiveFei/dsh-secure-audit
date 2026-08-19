@@ -1,5 +1,5 @@
 /**
- * dsh-security-audit — host plugin entry.
+ * dsh-secure-audit — host plugin entry.
  *
  * Registers three READ-ONLY tools with the DSH tool registry:
  *   - security_scan_text     prompt-injection detection (rule + optional model)
@@ -22,7 +22,7 @@ import { createLogger } from './lib/logger.js';
 import { createClassifier } from './lib/classifier.js';
 import { INJECTION_RULES, INJECTION_RULE_IDS, PII_TYPE_IDS } from './lib/rules.js';
 
-export const name = 'dsh-security-audit';
+export const name = 'dsh-secure-audit';
 /** Register only after the tools service is ready. */
 export const inject = ['tools'];
 
@@ -365,14 +365,14 @@ export function apply(ctx, config = {}) {
     if (markdown) {
       const skill = parseSkill(markdown);
       skills.register({ name: skill.name, description: skill.description, content: skill.content });
-      ctx.logger.info('[security-audit] runtime skill "%s" registered', skill.name);
+      ctx.logger.info('[secure-audit] runtime skill "%s" registered', skill.name);
     } else {
-      ctx.logger.warn('[security-audit] skill markdown not found; skill registration skipped');
+      ctx.logger.warn('[secure-audit] skill markdown not found; skill registration skipped');
     }
   }
 
   ctx.logger.info(
-    '[security-audit] ready: %d injection rules (ruleset v%d), 3 tools registered',
+    '[secure-audit] ready: %d injection rules (ruleset v%d), 3 tools registered',
     INJECTION_RULES.length,
     scanner.ruleset().version,
   );

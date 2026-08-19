@@ -1,6 +1,6 @@
 # Architecture
 
-`dsh-security-audit` is a host plugin for DeepSeek Harness. This document
+`dsh-secure-audit` is a host plugin for DeepSeek Harness. This document
 records the design decisions behind the three capabilities and the
 meta-security constraints that shape the code.
 

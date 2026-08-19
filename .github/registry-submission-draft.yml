@@ -1,11 +1,11 @@
 # Submission for the dsh.so / awesome-dsh-plugin registry.
 # When the repo qualifies (>= 1 day old, >= 10 commits), copy this file to
-# data/plugins/PensiveFei__dsh-security-audit.yml in a fork of
+# data/plugins/PensiveFei__dsh-secure-audit.yml in a fork of
 # github.com/awesome-dsh-plugin/awesome-dsh-plugin, regenerate the READMEs
 # (npm ci && node scripts/generate-readme.mjs), and open a PR.
 
-url: https://github.com/PensiveFei/dsh-security-audit
-name: PensiveFei/dsh-security-audit
+url: https://github.com/PensiveFei/dsh-secure-audit
+name: PensiveFei/dsh-secure-audit
 category: security
 description:
   en: 'Read-only security and compliance plugin for DeepSeek Harness: prompt-injection detection, Chinese-PII redaction, and a local configuration audit with redacted, reproducible reports.'

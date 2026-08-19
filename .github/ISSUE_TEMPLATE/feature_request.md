@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest a capability for dsh-security-audit
+about: Suggest a capability for dsh-secure-audit
 title: ''
 labels: enhancement
 assignees: ''

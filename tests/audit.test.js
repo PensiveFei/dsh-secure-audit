@@ -31,7 +31,7 @@ test('audit report shape and scope filtering', async () => {
   const root = makeFixture();
   try {
     const report = await runSecurityAudit({ baseDir: root, scope: ['config'] });
-    assert.equal(report.plugin, 'dsh-security-audit');
+    assert.equal(report.plugin, 'dsh-secure-audit');
     assert.equal(report.version, PLUGIN_VERSION);
     assert.equal(report.baseDir, '<base>');
     assert.deepEqual(report.scopesAudited, ['config']);

@@ -1,9 +1,9 @@
 ---
 name: security-review
-description: Review text, prompts, files, and the local DeepSeek Harness setup for security and compliance risks using the dsh-security-audit tools (security_scan_text, security_redact_text, security_audit), interpret the results, explain decisions to users transparently, and guide remediation or the appeal (allowlist) path. Use this skill whenever the user asks whether a message, prompt, file, or the local harness is safe, or when content was flagged by the security plugin.
+description: Review text, prompts, files, and the local DeepSeek Harness setup for security and compliance risks using the dsh-secure-audit tools (security_scan_text, security_redact_text, security_audit), interpret the results, explain decisions to users transparently, and guide remediation or the appeal (allowlist) path. Use this skill whenever the user asks whether a message, prompt, file, or the local harness is safe, or when content was flagged by the security plugin.
 ---
 
-# Security Review with dsh-security-audit
+# Security Review with dsh-secure-audit
 
 You are operating a read-only security & compliance toolkit. Your job is to
 inspect, explain, and advise — never to modify the audited system, and never

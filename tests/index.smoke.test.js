@@ -57,7 +57,7 @@ test('plugin entry exports the Cordis plugin contract', async (t) => {
   const loaded = await load(t);
   if (!loaded) return;
   const { plugin } = loaded;
-  assert.equal(plugin.name, 'dsh-security-audit');
+  assert.equal(plugin.name, 'dsh-secure-audit');
   assert.deepEqual(plugin.inject, ['tools']);
   assert.equal(typeof plugin.apply, 'function');
   assert.ok(Array.isArray(plugin.INJECTION_RULE_IDS));

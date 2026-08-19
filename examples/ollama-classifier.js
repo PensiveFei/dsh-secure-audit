@@ -11,7 +11,7 @@
  *          timeoutMs: 1500
  *
  *   2. Programmatically, when embedding the plugin or wrapping the scanner:
- *        import { createOllamaClassifier } from 'dsh-security-audit/lib/classifier.js';
+ *        import { createOllamaClassifier } from 'dsh-secure-audit/lib/classifier.js';
  *        config.classifier = createOllamaClassifier({ endpoint, model });
  *
  * The adapter satisfies the scanner contract:

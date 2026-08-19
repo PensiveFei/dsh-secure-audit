@@ -1,5 +1,5 @@
 /**
- * Lint for dsh-security-audit.
+ * Lint for dsh-secure-audit.
  *
  * 1. Syntax-checks every JS file with `node --check`.
  * 2. Scans the tree for accidentally committed secrets (tokens, keys, JWTs,

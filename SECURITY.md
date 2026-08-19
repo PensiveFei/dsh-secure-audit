@@ -1,6 +1,6 @@
 # Security Policy
 
-`dsh-security-audit` is a security tool, so its own security matters
+`dsh-secure-audit` is a security tool, so its own security matters
 (mirror, meet: meta-security). Please report any vulnerability you find.
 
 ## Supported versions
@@ -14,7 +14,7 @@
 Please **do not** open a public issue for security vulnerabilities. Report
 privately instead:
 
-- Open a [private security advisory](https://github.com/PensiveFei/dsh-security-audit/security/advisories/new)
+- Open a [private security advisory](https://github.com/PensiveFei/dsh-secure-audit/security/advisories/new)
   (preferred), or
 - Email the maintainers (address listed in the repository description).
 

@@ -7,8 +7,8 @@
 # never writes, deletes or executes anything.
 
 - insert:
-    - id: security-audit
-      name: 'dsh-security-audit'
+    - id: secure-audit
+      name: 'dsh-secure-audit'
 
 # All plugin config keys are optional; defaults are applied by the plugin.
 #   config:
