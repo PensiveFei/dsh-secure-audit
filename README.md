@@ -31,15 +31,14 @@ The plugin never writes, deletes, or executes anything on the audited system. Th
 The plugin has no build step and no install scripts. `index.js` and `lib/` are the shipped artifact; nothing compiles, so there is nothing to run at install time.
 
 ```bash
-# from npm
-dsh plugin add dsh-security-audit
-
-# from a tarball (npm pack)
+# from a tarball (attached to every GitHub release)
 dsh plugin add ./dsh-security-audit-0.1.0.tgz
 
 # from git source (no build runs; pin the commit)
 dsh plugin add github:PensiveFei/dsh-security-audit#<commit>
 ```
+
+> **npm:** not published yet. The `dsh plugin add dsh-security-audit` npm form will work once the package lands on the registry; until then use the tarball or git source above.
 
 Notes for git installs:
 
