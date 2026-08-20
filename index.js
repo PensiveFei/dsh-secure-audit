@@ -81,13 +81,21 @@ function renderRedact(args, value) {
   return lines.join('\n');
 }
 
+const STATUS_ICONS = Object.freeze({
+  pass: '✅',
+  warn: '⚠️',
+  fail: '❌',
+  error: '❓',
+  info: 'ℹ️',
+});
+
 function renderAudit(args, value) {
   const s = value.summary;
   const lines = [
     `**Security audit** — pass ${s.pass} / warn ${s.warn} / fail ${s.fail} / error ${s.error} / info ${s.info}`,
   ];
   for (const check of value.checks) {
-    const icon = { pass: '✅', warn: '⚠️', fail: '❌', error: '❓', info: 'ℹ️' }[check.status] ?? '•';
+    const icon = STATUS_ICONS[check.status] ?? '•';
     lines.push(`- ${icon} \`${check.id}\` (${check.severity}): ${check.message}`);
     if (check.evidence) lines.push(`  evidence: \`${check.evidence}\``);
   }
