@@ -222,7 +222,7 @@ test('session PII sampling respects the sampleLimit option', async () => {
     const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'], sampleLimit: 1 });
     const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
     assert.equal(session.status, 'warn');
-    assert.match(session.message, /sampled 1 session file/);
+    assert.match(session.message, /1 sampled session file/);
     const limit = report.limitations.find((l) => /sampling covers up to/.test(l));
     assert.ok(limit.includes('1'));
   } finally {
