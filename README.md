@@ -107,7 +107,10 @@ False-positive guards, all covered by tests:
 
 ```jsonc
 // security_audit
-{ "scope": ["config", "sessions", "plugins", "paths", "network", "env"] }
+{
+  "scope": ["config", "sessions", "plugins", "paths", "network", "env"],
+  "sampleLimit": 10 // max session files scanned for stored PII; raise for large session dirs
+}
 ```
 
 Returns `checks[]` plus a `summary` of `pass`/`warn`/`fail`/`error`/`info`. Evidence is redacted and path-normalized (`<base>` replaces the audited root, `<workspace>` the workspace), so reports can be shared. Two runs against the same tree produce identical `checks` (drop `generatedAt` for byte-identical diffs).

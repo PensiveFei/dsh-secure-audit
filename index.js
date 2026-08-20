@@ -302,6 +302,10 @@ export function apply(ctx, config = {}) {
         type: 'string',
         description: 'Optional workspace path to include in path checks.',
       },
+      sampleLimit: {
+        type: 'integer',
+        description: 'Max session files to scan for stored PII; default 10. Raise it for large session directories.',
+      },
     },
     output: {
       schema: {
@@ -360,6 +364,7 @@ export function apply(ctx, config = {}) {
         scope: args.scope,
         baseDir: args.baseDir,
         workspace: args.workspace,
+        sampleLimit: args.sampleLimit,
       });
       log.audit(report.summary);
       return { requestId, ...report };

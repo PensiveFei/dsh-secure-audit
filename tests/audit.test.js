@@ -216,6 +216,20 @@ test('plugins inventory covers per-profile bundles (scoped + plain), excludes pl
   }
 });
 
+test('session PII sampling respects the sampleLimit option', async () => {
+  const root = makeFixture();
+  try {
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'], sampleLimit: 1 });
+    const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+    assert.equal(session.status, 'warn');
+    assert.match(session.message, /sampled 1 session file/);
+    const limit = report.limitations.find((l) => /sampling covers up to/.test(l));
+    assert.ok(limit.includes('1'));
+  } finally {
+    cleanup(root);
+  }
+});
+
 test('chmod world-writable file triggers config-permissions warn', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'dsa-audit-mode-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
