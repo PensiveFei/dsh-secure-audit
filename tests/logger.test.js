@@ -60,6 +60,17 @@ test('typed helpers emit scan/redact/audit events', () => {
   assert.equal(JSON.parse(lines[2]).event, 'audit');
 });
 
+test('non-string fields pass through without crashing', () => {
+  const { sink, lines } = capture();
+  const logger = createLogger({ sink });
+  logger.child('req-6').emit('info', 'x', { count: 3, ok: true, nothing: null, ratio: 0.5 });
+  const parsed = JSON.parse(lines[0]);
+  assert.equal(parsed.count, 3);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.nothing, null);
+  assert.equal(parsed.ratio, 0.5);
+});
+
 test('disabled logger writes nothing', () => {
   const { sink, lines } = capture();
   const logger = createLogger({ sink, enabled: false });

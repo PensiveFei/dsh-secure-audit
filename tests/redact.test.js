@@ -101,3 +101,14 @@ test('maskSecret never reveals a full secret', () => {
   assert.ok(!masked.includes('secret'));
   assert.equal(maskSecret('abc'), '***'); // very short values are fully masked
 });
+
+test('empty and whitespace-only input passes through cleanly', () => {
+  assert.deepEqual(redactText(''), { redacted: '', truncated: false, findings: [] });
+  assert.deepEqual(redactText('   '), { redacted: '   ', truncated: false, findings: [] });
+});
+
+test('unknown modes are ignored silently', () => {
+  const { redacted, findings } = redactText('13812345678', { modes: ['not-a-real-type'] });
+  assert.equal(redacted, '13812345678');
+  assert.deepEqual(findings, []);
+});

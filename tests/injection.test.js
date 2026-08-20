@@ -154,6 +154,15 @@ test('adversarial sample suite passes expectations', async () => {
   assert.deepEqual(failures, []);
 });
 
+test('empty and symbol-only text scans as allow with no hits', async () => {
+  const empty = await scanForInjection('');
+  assert.equal(empty.decision, 'allow');
+  assert.deepEqual(empty.reasons, []);
+  const symbols = await scanForInjection('!@#$%^&*()_+{}[]|\\:;"\'<>,.?/');
+  assert.equal(symbols.decision, 'allow');
+  assert.deepEqual(symbols.reasons, []);
+});
+
 test('throws on non-string input', async () => {
   await assert.rejects(() => scanForInjection(null), /text must be a string/);
 });
