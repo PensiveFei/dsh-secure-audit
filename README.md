@@ -272,7 +272,7 @@ Configure `classifier: { adapter: ollama, endpoint, model, timeoutMs }` in the p
 
 **Is `dsh plugin add dsh-secure-audit` (npm) available?**
 
-Not yet — the npm account/token is not configured, so nothing has been published. The publish workflow is wired into CI: once `NPM_TOKEN` is set in the repo secrets, pushing a version tag publishes automatically. Until then, use the release tarball or the git source install.
+Not yet — the package is not published on npm. Use the release tarball (`dsh plugin add ./dsh-secure-audit-0.1.0.tgz`) or the git source install (`github:PensiveFei/dsh-secure-audit#<commit>`).
 
 ## Roadmap
 
