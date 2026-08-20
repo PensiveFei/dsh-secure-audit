@@ -252,6 +252,28 @@ Release checklist for this repo:
 7. Attach the tarball (the workflow does this) so `dsh plugin add ./xxx.tgz` users get the exact artifact.
 8. Optionally `npm publish` (build-less: source is the artifact).
 
+## FAQ
+
+**Tools not showing up after install?**
+
+The plugin registers at host boot. Install it, then reload the web profile (or restart the harness). Verify the bundle is listed in the profile's `dsh.profile.bundles` and that `dsh web --dump-config` shows the `secure-audit` row.
+
+**A scan flagged something that is clearly benign.**
+
+Add the rule id from the `reasons` output to the plugin's `allowlist` config (see Configuration). The hit then appears in `allowlistedHits` and no longer affects the decision.
+
+**Why does the audit warn about Windows file permissions?**
+
+The permission checks read POSIX mode bits only; Windows ACLs are not inspected (Node has no native ACL API). Treat permission warnings on Windows as a prompt for a manual check — the report's `limitations` field says the same.
+
+**How do I enable the model classifier?**
+
+Configure `classifier: { adapter: ollama, endpoint, model, timeoutMs }` in the plugin config and run a local Ollama instance (see Pluggable model classifier). Without a classifier, ambiguous cases stay at `review` for a human.
+
+**Is `dsh plugin add dsh-secure-audit` (npm) available?**
+
+Not yet — the npm account/token is not configured, so nothing has been published. The publish workflow is wired into CI: once `NPM_TOKEN` is set in the repo secrets, pushing a version tag publishes automatically. Until then, use the release tarball or the git source install.
+
 ## Roadmap
 
 - Default classifier adapter wired to the DSH `llm` service
