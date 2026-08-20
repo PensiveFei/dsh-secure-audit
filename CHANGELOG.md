@@ -6,6 +6,25 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- `security_audit` accepts `sampleLimit` to raise the session-file PII
+  sampling cap (default 10) for large session directories; the report's
+  `limitations` field reflects the effective value.
+- Edge-case tests: empty/whitespace redaction input, unknown redaction modes,
+  symbol-only scan input, classifier timeout degrade, allowlist + cache
+  interaction, multiple allowlisted rules.
+
+### Changed
+
+- Render maps and protected-signal tokens hoisted to module scope (no
+  behavior change).
+- FAQ section added to README (install, false positives, Windows permissions,
+  classifier setup).
+- CI supports manual `workflow_dispatch` runs.
+
 ## [0.1.0] - 2026-xx-xx
 
 First release.
