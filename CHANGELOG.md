@@ -6,7 +6,9 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
-## [Unreleased]
+## [0.1.1] - 2026-08-21
+
+First maintenance release; drop-in upgrade from 0.1.0 (no API changes).
 
 ### Added
 
@@ -15,17 +17,34 @@ may introduce breaking changes.
   `limitations` field reflects the effective value.
 - Edge-case tests: empty/whitespace redaction input, unknown redaction modes,
   symbol-only scan input, classifier timeout degrade, allowlist + cache
-  interaction, multiple allowlisted rules.
+  interaction, multiple allowlisted rules, concurrent-scan isolation.
 
 ### Changed
 
+- Scan engine precompiles each rule's global regex once at scanner creation
+  and iterates matches with `String#matchAll` (internally cloned with a
+  fresh `lastIndex` per call): the per-rule-per-scan `RegExp` rebuild is
+  gone, and concurrent scans on one scanner cannot corrupt each other's regex
+  state.
 - Render maps and protected-signal tokens hoisted to module scope (no
   behavior change).
-- FAQ section added to README (install, false positives, Windows permissions,
-  classifier setup).
+- README FAQ covers install, false positives, Windows permissions, and
+  classifier setup; the session-PII sampling limitation notes `sampleLimit`.
 - CI supports manual `workflow_dispatch` runs.
+- npm metadata gained `bugs` and `homepage` links.
 
-## [0.1.0] - 2026-xx-xx
+### Upgrade notes
+
+- No configuration or API changes; a drop-in replacement for 0.1.0.
+- Tested against `@deepseek-ai/dsh-tools` 0.1.0-rc.7 (unchanged); re-run
+  `security_audit` after upgrading DSH itself.
+
+### Known issues
+
+- Unchanged from 0.1.0 (Windows ACL caveat, sampling bounds, rule-only
+  operation without a local classifier, type-limited redaction).
+
+## [0.1.0] - 2026-08-19
 
 First release.
 

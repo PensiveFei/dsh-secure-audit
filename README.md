@@ -198,7 +198,8 @@ before relying on it.
   that run does not cover.
 - File-permission checks use POSIX mode bits; **Windows ACLs are not
   inspected** (Node has no native ACL API).
-- Session-file PII sampling covers up to 10 files.
+- Session-file PII sampling covers up to 10 files by default; raise
+  `sampleLimit` for large session directories.
 - Absence of findings does not imply the machine is secure.
 
 **Compatibility.**
