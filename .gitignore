@@ -1,5 +1,6 @@
 node_modules/
 .npm-cache/
+.npmrc
 .env*
 *.log
 *.tmp

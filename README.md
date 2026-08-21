@@ -38,7 +38,7 @@ dsh plugin add ./dsh-secure-audit-0.1.0.tgz
 dsh plugin add github:PensiveFei/dsh-secure-audit#<commit>
 ```
 
-> **npm:** not published yet. The `dsh plugin add dsh-secure-audit` npm form will work once the package lands on the registry; until then use the tarball or git source above.
+> **npm:** published — `dsh plugin add dsh-secure-audit` installs the latest release from the registry. The tarball attached to each GitHub release and the git source form below still work.
 
 Notes for git installs:
 
@@ -276,7 +276,7 @@ Configure `classifier: { adapter: ollama, endpoint, model, timeoutMs }` in the p
 
 **Is `dsh plugin add dsh-secure-audit` (npm) available?**
 
-Not yet — the package is not published on npm. Use the release tarball (`dsh plugin add ./dsh-secure-audit-0.1.0.tgz`) or the git source install (`github:PensiveFei/dsh-secure-audit#<commit>`).
+Yes — `dsh-secure-audit@0.1.1` is published on the npm registry. `dsh plugin add dsh-secure-audit` installs from the registry; the per-release tarball (`dsh plugin add ./dsh-secure-audit-<version>.tgz`) and the git source install (`github:PensiveFei/dsh-secure-audit#<commit>`) also work.
 
 ## Roadmap
 

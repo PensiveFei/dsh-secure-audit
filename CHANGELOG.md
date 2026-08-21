@@ -38,6 +38,8 @@ First maintenance release; drop-in upgrade from 0.1.0 (no API changes).
 - No configuration or API changes; a drop-in replacement for 0.1.0.
 - Tested against `@deepseek-ai/dsh-tools` 0.1.0-rc.7 (unchanged); re-run
   `security_audit` after upgrading DSH itself.
+- First release published to npm: `dsh plugin add dsh-secure-audit` installs
+  `dsh-secure-audit@0.1.1` from the registry.
 
 ### Known issues
 
