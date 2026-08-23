@@ -15,13 +15,14 @@ Read-only security and compliance plugin for [DeepSeek Harness](https://github.c
   side. Release notes state the DSH snapshot each version was tested against.
 - No install-time scripts and no build step; the shipped source is the artifact.
 
-Three tools and one skill:
+Four tools and one skill:
 
 | Capability | Tool | What it does |
 | --- | --- | --- |
-| Prompt-injection detection | `security_scan_text` | Rule engine (English + Chinese) with LRU cache, fail-open timeout, and a pluggable model classifier. Returns `allow` / `review` / `block` with per-rule reasons. |
+| Prompt-injection detection | `security_scan_text` | Rule engine (English + Chinese) with LRU cache, fail-open timeout (configurable fail-closed), and a pluggable model classifier. Returns `allow` / `review` / `block`, a `riskLevel`, and an `inputSha256` for replayable decisions. |
 | PII redaction | `security_redact_text` | Masks CN mobile numbers, CN ID cards, CN bank cards, emails, IPv4, API keys, and URL credentials. Output is safe to log or display. |
-| Local security audit | `security_audit` | Read-only audit of config secrets, file permissions, session-file PII, plugin sources, network bindings, and env vars. Deterministic, redacted report. |
+| Structured JSON redaction | `security_redact_json` | Recursively redacts sensitive values inside JSON by key name (`api_key`, `token`, `secret`, `password`, `authorization`, ...) plus a PII fallback on other values. The structure is preserved — safe to hand tool-call arguments or session context to a third-party model. |
+| Local security audit | `security_audit` | Read-only audit of config secrets, file permissions, session-file PII, plugin sources, network bindings, and env vars. Deterministic, redacted report with a self-checksum (`reportSha256`). |
 | Security review skill | `security-review` | Registered at runtime via the optional `skills` service; teaches the agent how to use the tools and explain verdicts. |
 
 The plugin never writes, deletes, or executes anything on the audited system. That is a hard constraint of the codebase, not a convention: there are no write paths in `lib/`.
@@ -65,6 +66,8 @@ Dependency: `@deepseek-ai/dsh-tools` is a peer dependency supplied by the DSH ru
   "requestId": "…",
   "decision": "block",
   "confidence": 1.0,
+  "riskLevel": "high",
+  "inputSha256": "…",
   "reasons": [
     {
       "ruleId": "instr-ignore-previous",
@@ -89,6 +92,13 @@ Decisions:
 - `review` — ambiguous; the pluggable classifier is consulted if configured.
 - `allow` — nothing above `reviewThreshold`. If `warnings` mention a budget timeout or truncation, that means "not fully scanned", not "safe".
 
+Each result also carries:
+
+- `riskLevel` — `low` / `medium` / `high` derived from the hit severities and the decision band; policies and auto-approvers can route on it.
+- `inputSha256` — SHA-256 of the scanned text, so any decision can be locally replayed from the exact bytes scanned (pair it with `ruleset`).
+
+On a budget timeout the decision follows the configured `onTimeout` policy (default `allow`, i.e. fail-open; set `review` or `block` for fail-closed sensitive flows), `confidence` is 0, and `warnings` explains why — reasons are dropped because the scan was incomplete.
+
 ### Redact PII
 
 ```jsonc
@@ -103,6 +113,20 @@ False-positive guards, all covered by tests:
 - CN bank cards must pass the Luhn checksum (16-digit order numbers are not masked).
 - IPv4 octets are range-checked; invalid octets pass through.
 
+### Redact structured JSON
+
+`security_redact_json` redacts by key name first, then falls back to the PII engine on other values:
+
+```jsonc
+// security_redact_json
+{ "json": "{\"config\":{\"api_key\":\"sk-abc…\",\"token\":\"tok_123\",\"phone\":\"13812345678\"}}" }
+// redactedJson: {"config":{"api_key":"[REDACTED]","token":"[REDACTED]","phone":"138****5678"}}
+// replacedKeys: [{"path":"$.config.api_key","key":"api_key"},{"path":"$.config.token","key":"token"}]
+// piiCount: 1
+```
+
+Use it before handing tool-call arguments or session context to a third-party model. Keys are never masked — only values — so the JSON shape stays readable. `keyModes` accepts extra key-name regexes.
+
 ### Audit the local harness
 
 ```jsonc
@@ -113,7 +137,7 @@ False-positive guards, all covered by tests:
 }
 ```
 
-Returns `checks[]` plus a `summary` of `pass`/`warn`/`fail`/`error`/`info`. Evidence is redacted and path-normalized (`<base>` replaces the audited root, `<workspace>` the workspace), so reports can be shared. Two runs against the same tree produce identical `checks` (drop `generatedAt` for byte-identical diffs).
+Returns `checks[]` plus a `summary` of `pass`/`warn`/`fail`/`error`/`info`. Evidence is redacted and path-normalized (`<base>` replaces the audited root, `<workspace>` the workspace), so reports can be shared. Two runs against the same tree produce identical `checks` and the same `reportSha256` (the self-checksum covers the report body, excluding `generatedAt`, so consumers can verify a report was not altered in transit or diff runs byte-for-byte).
 
 ## Configuration
 
@@ -121,8 +145,9 @@ All keys optional (see `cordis.patch.yml`).
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `scanTimeoutMs` | `100` | Cooperative scan budget; on expiry the scan returns `allow` with a warning |
+| `scanTimeoutMs` | `100` | Cooperative scan budget; on expiry the decision follows `onTimeout` |
 | `scanMaxLength` | `200000` | Hard input cap for scans |
+| `onTimeout` | `allow` | Policy when the budget expires: `allow` (fail-open, default) / `review` / `block` (fail-closed) |
 | `cacheSize` | `512` | LRU entries for identical scan inputs |
 | `blockThreshold` | `0.8` | Confidence ≥ → `block` |
 | `reviewThreshold` | `0.5` | Confidence ≥ → `review` |
@@ -162,8 +187,10 @@ const classifier = {
 What this plugin does about itself:
 
 - No write paths. Audit checks are `stat`/`readdir`/`readFile`/env/`os` reads only.
-- Redaction is on every output path: scan snippets, audit evidence, and log lines. `lib/logger.js` masks PII in any field named `text`/`content`/`evidence`/`snippet`/`value`; secrets are never persisted or echoed.
-- Fail-open: timeout and truncation downgrade to `allow` with an explicit warning, so the security feature cannot become an availability problem.
+- Redaction is on every output path: scan snippets, audit evidence, log lines, and structured JSON. `lib/logger.js` masks PII in any field named `text`/`content`/`evidence`/`snippet`/`value`; `security_redact_json` scrubs sensitive key values by name; secrets are never persisted or echoed.
+- Fail-open by default: timeout downgrades to `allow` with an explicit warning, so the security feature cannot become an availability problem. Sensitive flows can set `onTimeout: review|block` for fail-closed behavior.
+- Load-time schema validation: every tool output schema is asserted with `assertObjectJsonSchema` at plugin start, so a schema regression fails loudly instead of surfacing at runtime.
+- Self-checksums: scan results carry `inputSha256` and audit reports carry `reportSha256`, so decisions and reports can be replayed and verified locally.
 - Errors are sanitized: a failing check reports `status: "error"` with a generic message, no stack traces or internal paths.
 - No hard dependencies beyond the DSH-provided `@deepseek-ai/dsh-tools`; `lib/` uses only Node builtins.
 
@@ -230,7 +257,8 @@ Test coverage:
 - `injection` — rules, LRU hit/miss, budget fail-open, allowlist, classifier degrade, and the adversarial suite in `tests/fixtures/adversarial-samples.js` (add a case for every new rule).
 - `audit` — report shape, determinism across runs, no-modification guarantee (mtime/size asserted), evidence redaction, placeholder skip, path normalization.
 - `logger` — JSONL shape, requestId, auto-redaction of sensitive fields.
-- `index` — smoke test that `apply()` exports the Cordis plugin contract and registers 3 tools + 1 skill against the real `@deepseek-ai/dsh-tools`.
+- `redactJson` — sensitive-key replacement (nested objects/arrays, JSONPath labels), PII fallback on other values, invalid-JSON handling, custom key patterns, depth guard.
+- `index` — smoke test that `apply()` exports the Cordis plugin contract and registers 4 tools + 1 skill against the real `@deepseek-ai/dsh-tools`, with load-time output-schema validation.
 
 Local `--patch` development: when the patch references this plugin by absolute path, bare imports (`@deepseek-ai/dsh-tools`) resolve from the plugin directory upward, so `node_modules/@deepseek-ai/dsh-tools` must exist there. Create a symlink (POSIX) or junction (Windows, `New-Item -ItemType Junction`) to a local `dsh-tools` checkout instead of installing from the registry if you want to test against unreleased changes.
 

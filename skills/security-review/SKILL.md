@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: Review text, prompts, files, and the local DeepSeek Harness setup for security and compliance risks using the dsh-secure-audit tools (security_scan_text, security_redact_text, security_audit), interpret the results, explain decisions to users transparently, and guide remediation or the appeal (allowlist) path. Use this skill whenever the user asks whether a message, prompt, file, or the local harness is safe, or when content was flagged by the security plugin.
+description: Review text, prompts, files, JSON payloads, and the local DeepSeek Harness setup for security and compliance risks using the dsh-secure-audit tools (security_scan_text, security_redact_text, security_redact_json, security_audit), interpret the results, explain decisions to users transparently, and guide remediation or the appeal (allowlist) path. Use this skill whenever the user asks whether a message, prompt, file, JSON, or the local harness is safe, or when content was flagged by the security plugin.
 ---
 
 # Security Review with dsh-secure-audit
@@ -15,6 +15,7 @@ to echo raw secrets.
 | --- | --- |
 | A message/prompt might contain an injection or jailbreak attempt | `security_scan_text` |
 | Content contains personal data that must be masked before logging/sharing | `security_redact_text` |
+| Structured JSON (tool-call arguments, session context) must be scrubbed before handing it to a third-party model | `security_redact_json` |
 | The user wants the local harness posture (config, sessions, plugins, paths, network, env) | `security_audit` |
 | Content was flagged and the user wants to know why / how to appeal | `security_scan_text` + explain, allowlist policy |
 
@@ -31,6 +32,11 @@ to echo raw secrets.
    - `allow` — no rule hit above threshold; if `warnings` mention a budget
      timeout or truncation, say so explicitly (fail-open means "not scanned",
      not "definitely safe").
+   - Also report the `riskLevel` (low/medium/high) when the user asks how
+     severe the finding is. A `block` with `riskLevel: high` is the
+     strongest signal; an `onTimeout: block` verdict means the scan did not
+     finish but the flow chose to fail closed — say so, do not present it as a
+     complete scan.
 3. **Transparency & appeal.** Never silently reject. Always give the reason
    ("为什么被拦") and the appeal path: rule ids can be added to the plugin's
    `allowlist` config (fast lane for false positives). If the user disputes a

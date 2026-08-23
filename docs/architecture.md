@@ -7,11 +7,13 @@ meta-security constraints that shape the code.
 ## Module map
 
 ```
-index.js                 Cordis plugin entry: registers 3 tools + 1 runtime skill
+index.js                 Cordis plugin entry: registers 4 tools + 1 runtime skill
 lib/rules.js             Pure data: injection rule table + PII pattern table
-lib/injection.js         Rule engine: LRU cache, budget timeout, classifier hook
+lib/injection.js         Rule engine: LRU cache, budget timeout, onTimeout policy,
+                         riskLevel + inputSha256 output, classifier hook
 lib/redact.js            PII redaction engine (regex + structural validation)
-lib/audit.js             Read-only audit: 9 deterministic checks
+                         + redactJson (recursive sensitive-key redaction)
+lib/audit.js             Read-only audit: 9 deterministic checks + reportSha256
 lib/logger.js            Structured JSON-lines logger, auto-redaction
 skills/security-review/  Agent skill (registered via optional `skills` service)
 tests/                   node:test suite + adversarial sample library
@@ -39,9 +41,18 @@ cheap); a model classifier runs only when the rules are inconclusive.
 - **LRU cache.** SHA-256(text) + `RULESET_VERSION` key; identical inputs skip
   re-scanning. `RULESET_VERSION` is bumped whenever rule semantics change so
   stale cached verdicts cannot survive an upgrade.
-- **Fail-open budget.** A cooperative timeout checks wall-clock between rules;
-  on expiry the scan stops, returns `allow`, and emits an explicit warning —
-  "not scanned", never "safe". Truncation behaves the same way.
+- **Fail-open budget (configurable).** A cooperative timeout checks
+  wall-clock between rules; on expiry the decision follows `onTimeout`
+  (`allow` fail-open default / `review` / `block` fail-closed), reasons
+  are dropped (the scan was incomplete), confidence is 0, and an explicit
+  warning names the applied policy — "not scanned", never "safe". Truncation
+  behaves the same way.
+- **Risk level.** `riskLevel` (low/medium/high) is derived from the highest
+  hit severity plus the decision band, giving policies a coarse routing input
+  without interpreting raw confidence.
+- **Replayable decisions.** Every scan result carries `inputSha256` (the
+  scanned text's digest) so a decision can be replayed locally with the same
+  ruleset version.
 - **Classifier hook.** `{ classify(text, context) → {decision?, confidence?} }`
   is invoked only on `review` verdicts without critical hits, under its own
   timeout, and its failure degrades to the rule decision with a warning.
@@ -63,6 +74,16 @@ number looks like an ID card). Mitigations:
   rest: `138****5678`, `1101**********1234`, `****9012`, `zh***@example.com`,
   `***.***.***.***`, `sk-abc********`.
 
+**Structured redaction (`redactJson`).** A second, structure-aware channel for
+JSON input: any object key matching the sensitive-key pattern
+(`api_key`/`token`/`secret`/`password`/`authorization`/`credential`...)
+has its whole value replaced by `[REDACTED]` — structural, so obfuscated
+values cannot slip through — and every other string value passes through the
+regex engine as a fallback. Keys are never masked, so the JSON shape stays
+readable. This is the layer to use before handing tool-call arguments or
+session context to a third-party model (inspired by dsh-auto-review's
+`sanitizeArguments`).
+
 ## Capability 3 — Read-only audit (`lib/audit.js`)
 
 Nine deterministic checks across six scopes:
@@ -81,13 +102,18 @@ Nine deterministic checks across six scopes:
 
 Determinism: fixed check order, sorted arrays, no randomness; `generatedAt`
 is metadata and can be stripped for byte-identical diffing. Every check is
-wrapped: a throw becomes `status: "error"` with a sanitized message.
+wrapped: a throw becomes `status: "error"` with a sanitized message. The
+report carries `reportSha256` — a self-checksum over the deterministic body
+(excluding `generatedAt`) — so consumers can verify a report was not altered
+and diff two runs byte-for-byte.
 
 ## Meta-security (the plugin auditing itself)
 
 1. **Input validation.** All tool arguments are schema-validated by
    `defineTool` before `execute` runs; engine inputs are type-checked and
-   length-capped.
+   length-capped. Every tool output schema is additionally asserted at load
+   time with `assertObjectJsonSchema`, so a schema regression fails the
+   plugin loudly at startup.
 2. **No leaky errors.** Audit checks and the classifier path convert failures
    into generic messages; internal paths are normalized to `<base>` /
    `<workspace>`.

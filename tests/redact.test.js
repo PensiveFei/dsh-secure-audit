@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { redactText, containsPii, maskSecret } from '../lib/redact.js';
+import { redactText, containsPii, maskSecret, redactJson } from '../lib/redact.js';
 import { PII_RULES } from '../lib/rules.js';
 
 test('redacts a CN mobile number keeping prefix and suffix', () => {
@@ -112,3 +112,68 @@ test('unknown modes are ignored silently', () => {
   assert.equal(redacted, '13812345678');
   assert.deepEqual(findings, []);
 });
+
+test('redactJson replaces sensitive-key values structurally', () => {
+  const input = JSON.stringify({ config: { api_key: 'sk-abcdefghijklmnop', token: 'tok_123456', phone: '13812345678' } });
+  const { redactedJson, replacedKeys, piiCount, error } = redactJson(input);
+  assert.equal(error, null);
+  const out = JSON.parse(redactedJson);
+  assert.equal(out.config.api_key, '[REDACTED]');
+  assert.equal(out.config.token, '[REDACTED]');
+  // non-sensitive values keep the PII fallback
+  assert.equal(out.config.phone, '138****5678');
+  assert.equal(piiCount, 1);
+  assert.deepEqual(replacedKeys.map((k) => k.key), ['api_key', 'token']);
+});
+
+test('redactJson handles nested objects and arrays with JSONPath labels', () => {
+  const input = JSON.stringify({ credentials: [{ user: 'a', password: 'p@ss' }], items: ['x'] });
+  const { redactedJson, replacedKeys } = redactJson(input);
+  const out = JSON.parse(redactedJson);
+  assert.equal(out.credentials[0].password, '[REDACTED]');
+  assert.deepEqual(out.items, ['x']);
+  assert.equal(replacedKeys[0].path, '$.credentials[0].password');
+});
+
+test('redactJson accepts an already-parsed object', () => {
+  const { redactedJson } = redactJson({ client_secret: 's3cr3t', name: 'ok' });
+  const out = JSON.parse(redactedJson);
+  assert.equal(out.client_secret, '[REDACTED]');
+  assert.equal(out.name, 'ok');
+});
+
+test('redactJson preserves non-secret structure and numbers/booleans', () => {
+  const input = JSON.stringify({ enabled: true, count: 3, label: 'hello world', token: 'abc' });
+  const { redactedJson, replacedKeys } = redactJson(input);
+  const out = JSON.parse(redactedJson);
+  assert.equal(out.enabled, true);
+  assert.equal(out.count, 3);
+  assert.equal(out.label, 'hello world');
+  assert.equal(out.token, '[REDACTED]');
+  assert.equal(replacedKeys.length, 1);
+});
+
+test('redactJson reports invalid JSON without throwing', () => {
+  const { redactedJson, error } = redactJson('{not json');
+  assert.equal(redactedJson, '');
+  assert.match(error, /invalid JSON/i);
+});
+
+test('redactJson honors custom key patterns', () => {
+  const { redactedJson, replacedKeys } = redactJson('{"myCustom": "v", "token": "x"}', {
+    keyPattern: /custom/i,
+  });
+  const out = JSON.parse(redactedJson);
+  assert.equal(out.myCustom, '[REDACTED]');
+  assert.equal(out.token, 'x'); // custom pattern replaces the built-in one
+  assert.deepEqual(replacedKeys.map((k) => k.key), ['myCustom']);
+});
+
+test('redactJson depth guard does not crash on deep nesting', () => {
+  let deep = 'x';
+  for (let i = 0; i < 100; i += 1) deep = { child: deep };
+  const { redactedJson, error } = redactJson(JSON.stringify({ a: deep }));
+  assert.equal(error, null);
+  assert.ok(redactedJson.length > 0);
+});
+

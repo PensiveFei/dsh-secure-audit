@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync, statSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runSecurityAudit, CHECK_SCOPES, PLUGIN_VERSION } from '../lib/audit.js';
@@ -225,6 +226,45 @@ test('session PII sampling respects the sampleLimit option', async () => {
     assert.match(session.message, /1 sampled session file/);
     const limit = report.limitations.find((l) => /sampling covers up to/.test(l));
     assert.ok(limit.includes('1'));
+  } finally {
+    cleanup(root);
+  }
+});
+
+
+test('report carries a self-checksum that is stable across runs', async () => {
+  const root = makeFixture();
+  try {
+    const a = await runSecurityAudit({ baseDir: root });
+    const b = await runSecurityAudit({ baseDir: root });
+    assert.match(a.reportSha256, /^[0-9a-f]{64}$/);
+    // Same tree, same checks -> identical body hash (generatedAt excluded).
+    assert.equal(a.reportSha256, b.reportSha256);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('reportSha256 changes when a check outcome changes', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-audit-hash-'));
+  try {
+    writeFileSync(join(root, 'cordis.yml'), 'plugins: []\n');
+    const clean = await runSecurityAudit({ baseDir: root });
+    writeFileSync(join(root, 'cordis.yml'), 'apiKey: not-a-real-api-key-please-replace\n');
+    const dirty = await runSecurityAudit({ baseDir: root });
+    assert.notEqual(clean.reportSha256, dirty.reportSha256);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('reportSha256 recomputes from the deterministic body (drop generatedAt)', async () => {
+  const root = makeFixture();
+  try {
+    const report = await runSecurityAudit({ baseDir: root });
+    const { generatedAt, reportSha256, ...body } = report;
+    const expected = createHash('sha256').update(JSON.stringify(body)).digest('hex');
+    assert.equal(reportSha256, expected);
   } finally {
     cleanup(root);
   }
