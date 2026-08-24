@@ -6,6 +6,21 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.1] - 2026-08-23
+
+Bugfix release. Both defects were found by DeepSeek Harness (DSH) automated
+code review.
+
+### Fixed
+
+- `cn_id` redaction now applies a real calendar check to the embedded birth
+  date: impossible dates (e.g. 2000-02-31, Feb 29 in a non-leap year) are no
+  longer masked as identity cards, cutting order-number false positives
+  (issue #1).
+- `security_audit`'s `config-secrets` check now also inspects YAML/TOML
+  list items (`- key: value`), so secrets stored under arrays are no longer
+  missed (issue #2).
+
 ## [0.2.0] - 2026-08-22 (unreleased)
 
 Second feature release. Adds a fourth tool (structured JSON redaction) and

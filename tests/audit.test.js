@@ -68,6 +68,28 @@ test('detects embedded secrets in config, redacted evidence never leaks the valu
   }
 });
 
+test('detects secrets inside YAML list items ( - key: value )', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-audit-list-'));
+  try {
+    // TEST markers keep the fake values out of the secret scanners in
+    // scripts/lint.mjs (same convention as tests/redact.test.js).
+    writeFileSync(join(root, 'config.yaml'), [
+      'credentials:',
+      '  - api_key: sk-TEST-AAAA1111BBBB2222CCCC3333',
+      'top_level_token: ghp_TEST-ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+      '',
+    ].join('\n'));
+    const report = await runSecurityAudit({ baseDir: root, scope: ['config'] });
+    const secretCheck = report.checks.find((c) => c.id === 'config-secrets');
+    assert.equal(secretCheck.status, 'fail');
+    assert.match(secretCheck.message, /2 secret-like/);
+    assert.match(secretCheck.evidence, /api_key/);
+    assert.match(secretCheck.evidence, /:2 api_key/);
+  } finally {
+    cleanup(root);
+  }
+});
+
 test('flags all-interface network binding', async () => {
   const root = makeFixture();
   try {

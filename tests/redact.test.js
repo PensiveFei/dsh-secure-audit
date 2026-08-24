@@ -29,6 +29,22 @@ test('does NOT treat an arbitrary 18-digit order number as an ID card', () => {
   assert.equal(findings.length, 0);
 });
 
+test('does NOT treat an 18-digit number with an impossible date as an ID card', () => {
+  // 2000-02-31 does not exist on the calendar; the pattern's date check is
+  // structural only, so the calendar guard must reject it (order-number case).
+  const { redacted, findings } = redactText('订单号 110105200002310015');
+  assert.equal(redacted, '订单号 110105200002310015');
+  assert.equal(findings.length, 0);
+});
+
+test('redacts ID cards with a real date and applies the leap-year rule', () => {
+  const leap = redactText('110105200402290011'); // 2004-02-29 is a leap day
+  assert.equal(leap.findings[0].type, 'cn_id');
+  const nonLeap = redactText('110105200302290011'); // 2003-02-29 does not exist
+  assert.equal(nonLeap.redacted, '110105200302290011');
+  assert.equal(nonLeap.findings.length, 0);
+});
+
 test('does NOT treat a 16-digit order number as a bank card (Luhn guard)', () => {
   const { redacted, findings } = redactText('订单号 2026021412345678，请查询');
   assert.equal(redacted, '订单号 2026021412345678，请查询');
