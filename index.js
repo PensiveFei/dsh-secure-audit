@@ -479,7 +479,7 @@ export function apply(ctx, config = {}) {
     const markdown = loadSkillMarkdown();
     if (markdown) {
       const skill = parseSkill(markdown);
-      skills.register({ name: skill.name, description: skill.description, content: skill.content });
+      skills.register({ name: skill.name, description: skill.description, content: skill.content, source: skill.content });
       ctx.logger.info('[secure-audit] runtime skill "%s" registered', skill.name);
     } else {
       ctx.logger.warn('[secure-audit] skill markdown not found; skill registration skipped');

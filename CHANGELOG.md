@@ -6,6 +6,17 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.2] - 2026-08-26
+
+Bugfix release.
+
+### Fixed
+
+- The `security-review` runtime skill is now registered with the `source`
+  field the DSH skill registry requires. Loading the skill previously failed
+  with `loaded skill "security-review" source must be a string` because the
+  registration only carried `content`.
+
 ## [0.2.1] - 2026-08-23
 
 Bugfix release. Both defects were found by DeepSeek Harness (DSH) automated

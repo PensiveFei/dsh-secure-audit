@@ -81,6 +81,7 @@ test('apply() registers 4 tools + the security-review skill', async (t) => {
   assert.equal(skills.length, 1);
   assert.equal(skills[0].name, 'security-review');
   assert.ok(skills[0].content.length > 0);
+  assert.ok(typeof skills[0].source === 'string' && skills[0].source.length > 0);
 });
 
 test('every tool executes and its output matches the declared schema', async (t) => {
