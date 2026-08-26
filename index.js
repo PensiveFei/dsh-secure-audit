@@ -70,7 +70,7 @@ function renderScan(args, value) {
   }
   if (value.warnings.length > 0) lines.push(`⚠ ${value.warnings.join('; ')}`);
   if (value.classifierUsed) lines.push('Model classifier contributed to this decision.');
-  return lines.join('\n');
+  return [{ type: 'text', text: lines.join('\n') }];
 }
 
 function renderRedact(args, value) {
@@ -78,14 +78,14 @@ function renderRedact(args, value) {
   const lines = [`**PII redaction** — ${total} occurrence(s) masked across ${value.findings.length} type(s).`];
   for (const f of value.findings) lines.push(`- ${f.label}: ×${f.count} (e.g. \`${f.sample}\`)`);
   if (value.truncated) lines.push('⚠ input was truncated before redaction.');
-  return lines.join('\n');
+  return [{ type: 'text', text: lines.join('\n') }];
 }
 
 function renderRedactJson(args, value) {
   const lines = [];
   if (value.error) {
     lines.push(`**Structured redaction** — ${value.error}`);
-    return lines.join('\n');
+    return [{ type: 'text', text: lines.join('\n') }];
   }
   lines.push(
     `**Structured redaction** — ${value.replacedKeys.length} sensitive key(s) replaced, ${value.piiCount} PII occurrence(s) masked in other values.`,
@@ -94,7 +94,7 @@ function renderRedactJson(args, value) {
     lines.push('Replaced keys:');
     for (const k of value.replacedKeys.slice(0, 10)) lines.push(`- \`${k.path}\``);
   }
-  return lines.join('\n');
+  return [{ type: 'text', text: lines.join('\n') }];
 }
 
 const STATUS_ICONS = Object.freeze({
@@ -119,7 +119,7 @@ function renderAudit(args, value) {
     lines.push('Limitations:');
     for (const limitation of value.limitations) lines.push(`- ${limitation}`);
   }
-  return lines.join('\n');
+  return [{ type: 'text', text: lines.join('\n') }];
 }
 
 // ---------------------------------------------------------------------------

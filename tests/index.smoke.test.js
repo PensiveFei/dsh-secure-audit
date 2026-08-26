@@ -105,7 +105,11 @@ test('every tool executes and its output matches the declared schema', async (t)
     const violations = validateJsonSchemaValue(def.output.schema, result, 'output');
     assert.deepEqual(violations, [], `${def.name}: output violates its schema`);
     const rendered = def.output.render(args, result);
-    assert.equal(typeof rendered, 'string');
+    assert.ok(Array.isArray(rendered), `${def.name}: render must return a ContentBlock[] array`);
+    for (const block of rendered) {
+      assert.ok(block !== null && typeof block === 'object', `${def.name}: render block must be an object`);
+      assert.equal(typeof block.type, 'string', `${def.name}: render block must carry a string type tag`);
+    }
     assert.ok(rendered.length > 0, `${def.name}: empty render`);
   }
 });
