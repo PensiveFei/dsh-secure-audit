@@ -6,6 +6,28 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.3] - 2026-08-26
+
+Bugfix release. Fixes a plugin-tool hang reported in
+deepseek-ai/deepseek-harness discussion #4551: every tool call from the
+harness (e.g. from `run_code`) never settled while built-in tools worked.
+
+### Fixed
+
+- All four `output.render` implementations now return a `ContentBlock[]`
+  (an array of records each carrying a string `type` tag, e.g.
+  `[{ type: 'text', text: ... }]`) instead of a bare string. The DSH
+  contract is `render(args, value): ContentBlock[]`; a string is
+  JSON-lossless and passed the projection snapshot, then broke in the
+  consumer that assumes an array, hanging the tool call (root cause
+  confirmed by @Jstn-1g and @tancheng33 in discussion #4551).
+- The smoke test asserted `typeof rendered === 'string'`, pinning the
+  buggy shape; it now asserts the render result is an array of records with
+  string `type` tags against the real `@deepseek-ai/dsh-tools`.
+
+### Upgrade notes
+
+- No config changes. Verified against the same environment as 0.2.2.
 ## [0.2.2] - 2026-08-26
 
 Bugfix release.
