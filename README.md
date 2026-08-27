@@ -9,6 +9,10 @@ Read-only security and compliance plugin for [DeepSeek Harness](https://github.c
 
 [![dsh.so security](https://www.dsh.so/badge/dsh-secure-audit.svg)](https://www.dsh.so/artifact/dsh-secure-audit)
 [![dsh.so install](https://www.dsh.so/badge/install/dsh-secure-audit.svg)](https://www.dsh.so/artifact/dsh-secure-audit)
+[![MIT license](https://img.shields.io/github/license/PensiveFei/dsh-secure-audit)](https://github.com/PensiveFei/dsh-secure-audit/blob/main/LICENSE)
+[![release](https://img.shields.io/github/v/release/PensiveFei/dsh-secure-audit)](https://github.com/PensiveFei/dsh-secure-audit/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/PensiveFei/dsh-secure-audit/ci.yml)](https://github.com/PensiveFei/dsh-secure-audit/actions/workflows/ci.yml)
+[![npm downloads](https://img.shields.io/npm/dw/dsh-secure-audit)](https://www.npmjs.com/package/dsh-secure-audit)
 
 Also listed in [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) · [Awesome DeepSeek Harness](https://github.com/Dominic789654/awesome-deepseek-harness)
 
