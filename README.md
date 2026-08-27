@@ -10,6 +10,8 @@ Read-only security and compliance plugin for [DeepSeek Harness](https://github.c
 [![dsh.so security](https://www.dsh.so/badge/dsh-secure-audit.svg)](https://www.dsh.so/artifact/dsh-secure-audit)
 [![dsh.so install](https://www.dsh.so/badge/install/dsh-secure-audit.svg)](https://www.dsh.so/artifact/dsh-secure-audit)
 
+Also listed in [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) · [Awesome DeepSeek Harness](https://github.com/Dominic789654/awesome-deepseek-harness)
+
 ## Compatibility
 
 - Peer dependency: `@deepseek-ai/dsh-tools >= 0.1.0-rc.7`, provided by the DSH runtime.
