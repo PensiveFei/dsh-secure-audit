@@ -316,7 +316,7 @@ Configure `classifier: { adapter: ollama, endpoint, model, timeoutMs }` in the p
 
 **Is `dsh plugin add dsh-secure-audit` (npm) available?**
 
-Yes — `dsh-secure-audit@0.1.1` is published on the npm registry. `dsh plugin add dsh-secure-audit` installs from the registry; the per-release tarball (`dsh plugin add ./dsh-secure-audit-<version>.tgz`) and the git source install (`github:PensiveFei/dsh-secure-audit#<commit>`) also work.
+Yes — the latest release is published on the npm registry. `dsh plugin add dsh-secure-audit` installs from the registry; the per-release tarball (`dsh plugin add ./dsh-secure-audit-<version>.tgz`) and the git source install (`github:PensiveFei/dsh-secure-audit#<commit>`) also work.
 
 ## Roadmap
 
