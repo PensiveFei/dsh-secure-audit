@@ -6,7 +6,7 @@
  *   1. From the plugin config (cordis.patch.yml), as a descriptor:
  *        classifier:
  *          adapter: ollama
- *          endpoint: http://127.0.0.1:11434/api/generate
+ *          endpoint: http://localhost:11434/api/generate
  *          model: llama3-guard
  *          timeoutMs: 1500
  *

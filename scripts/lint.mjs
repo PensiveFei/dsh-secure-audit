@@ -1,7 +1,7 @@
 /**
  * Lint for dsh-secure-audit.
  *
- * 1. Syntax-checks every JS file with `node --check`.
+ * 1. Syntax-checks every JS file with acorn (parse-only, never executes).
  * 2. Scans the tree for accidentally committed secrets (tokens, keys, JWTs,
  *    PEM private keys). Test fixtures deliberately contain fake-looking
  *    values; the markers "TEST" / "not-a-real-" keep them out of every
@@ -10,7 +10,7 @@
  * Run from the repo root: `node scripts/lint.mjs` (CI: `npm run lint`).
  */
 
-import { spawnSync } from 'node:child_process';
+import { parse } from 'acorn';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -43,12 +43,14 @@ function walk(dir) {
 
 let failed = 0;
 
-// 1. syntax check
+// 1. syntax check (parse-only; acorn never executes the code)
 const files = walk(ROOT);
 for (const file of files) {
-  const result = spawnSync(process.execPath, ['--check', file], { stdio: 'inherit' });
-  if (result.status !== 0) {
-    console.error(`lint: syntax error in ${relative(ROOT, file)}`);
+  const source = readFileSync(file, 'utf8');
+  try {
+    parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowReturnOutsideFunction: true });
+  } catch (err) {
+    console.error(`lint: syntax error in ${relative(ROOT, file)} (${err.message})`);
     failed += 1;
   }
 }

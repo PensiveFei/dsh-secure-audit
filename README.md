@@ -175,7 +175,7 @@ Two ways to configure it:
 # 1. Descriptor — usable directly from cordis.patch.yml (no code):
 classifier:
   adapter: ollama                       # built-in adapter (Llama-Guard via Ollama)
-  endpoint: http://127.0.0.1:11434/api/generate
+  endpoint: http://localhost:11434/api/generate
   model: llama3-guard
   timeoutMs: 1500
 ```

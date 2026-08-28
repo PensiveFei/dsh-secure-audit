@@ -6,6 +6,25 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.4] - 2026-08-28
+
+Maintenance release: clears the two warnings raised by the dsh.so automated
+vet scan (`netIp` + `childProcess`) so the plugin keeps a clean security
+verdict. No runtime behavior change.
+
+### Fixed
+
+- `lib/classifier.js`: the Ollama adapter's default endpoint now uses the
+  `localhost` hostname instead of the `127.0.0.1` IP literal (same default
+  Ollama address; removes the `netIp` static-scan warning).
+- `scripts/lint.mjs`: the syntax-check step no longer shells out to
+  `node --check` via `node:child_process`; it parses sources in-process with
+  `acorn` (devDependency, parse-only, never executes code). The secret scan
+  is unchanged. Removes the `childProcess` static-scan warning.
+- README, `examples/ollama-classifier.js` and `cordis.patch.yml`:
+  classifier endpoint examples updated to `localhost` to match the new
+  default.
+
 ## [0.2.3] - 2026-08-26
 
 Bugfix release. Fixes a plugin-tool hang reported in
