@@ -277,3 +277,10 @@ test('riskLevel is consistent for allowlisted (benign) input', async () => {
   assert.equal(result.riskLevel, 'low');
 });
 
+test('scan result carries the post-truncation scannedLength (consistent with inputSha256)', async () => {
+  const scanner = createInjectionScanner({ maxLength: 1000 });
+  const result = await scanner.scan('x'.repeat(1500));
+  assert.equal(result.truncated, true);
+  assert.equal(result.scannedLength, 1000);
+});
+

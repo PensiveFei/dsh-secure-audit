@@ -34,7 +34,7 @@ Four tools and one skill:
 | Local security audit | `security_audit` | Read-only audit of config secrets, file permissions, session-file PII, plugin sources, network bindings, and env vars. Deterministic, redacted report with a self-checksum (`reportSha256`). |
 | Security review skill | `security-review` | Registered at runtime via the optional `skills` service; teaches the agent how to use the tools and explain verdicts. |
 
-The plugin never writes, deletes, or executes anything on the audited system. That is a hard constraint of the codebase, not a convention: there are no write paths in `lib/`.
+The plugin never writes, deletes, or executes anything on the audited system. That is a hard constraint of the codebase, not a convention: the audit/redaction/scan code paths perform reads only; the single write path in `lib/` is the opt-in `logFile` audit log in `lib/logger.js` (append-only JSONL, disabled by default).
 
 ## Install
 
@@ -136,6 +136,8 @@ False-positive guards, all covered by tests:
 
 Use it before handing tool-call arguments or session context to a third-party model. Keys are never masked — only values — so the JSON shape stays readable. `keyModes` accepts extra key-name regexes.
 
+Since 0.2.5 the key channel replaces the whole value regardless of its type (numbers, booleans, arrays, nested objects); strings inside ordinary arrays also go through the PII fallback; and anything beyond the depth-32 recursion guard is replaced by `[REDACTED]` (fail safe). `keyModes` accepts at most 20 patterns of up to 200 characters each — an invalid pattern surfaces in the `error` field instead of throwing.
+
 ### Audit the local harness
 
 ```jsonc
@@ -163,6 +165,7 @@ All keys optional (see `cordis.patch.yml`).
 | `allowlist` | `[]` | Rule ids always treated as benign (false-positive appeal channel) |
 | `classifier` | `null` | Pluggable model classifier, see below |
 | `maskChar` | `*` | Masking character |
+| `logEnabled` | `true` | Emit the structured JSONL event log; `false` silences it |
 | `logFile` | `""` | Append JSONL audit log; empty = `ctx.logger` only |
 
 ### Pluggable model classifier
@@ -195,7 +198,7 @@ const classifier = {
 
 What this plugin does about itself:
 
-- No write paths. Audit checks are `stat`/`readdir`/`readFile`/env/`os` reads only.
+- No write paths in the audit. Audit checks are `stat`/`readdir`/`readFile`/env/`os` reads only; the plugin's single write is the opt-in `logFile` audit log (append-only).
 - Redaction is on every output path: scan snippets, audit evidence, log lines, and structured JSON. `lib/logger.js` masks PII in any field named `text`/`content`/`evidence`/`snippet`/`value`; `security_redact_json` scrubs sensitive key values by name; secrets are never persisted or echoed.
 - Fail-open by default: timeout downgrades to `allow` with an explicit warning, so the security feature cannot become an availability problem. Sensitive flows can set `onTimeout: review|block` for fail-closed behavior.
 - Load-time schema validation: every tool output schema is asserted with `assertObjectJsonSchema` at plugin start, so a schema regression fails loudly instead of surfacing at runtime.
@@ -266,7 +269,7 @@ Test coverage:
 - `injection` — rules, LRU hit/miss, budget fail-open, allowlist, classifier degrade, and the adversarial suite in `tests/fixtures/adversarial-samples.js` (add a case for every new rule).
 - `audit` — report shape, determinism across runs, no-modification guarantee (mtime/size asserted), evidence redaction, placeholder skip, path normalization.
 - `logger` — JSONL shape, requestId, auto-redaction of sensitive fields.
-- `redactJson` — sensitive-key replacement (nested objects/arrays, JSONPath labels), PII fallback on other values, invalid-JSON handling, custom key patterns, depth guard.
+- `redactJson` — sensitive-key replacement (nested objects/arrays, JSONPath labels, non-string values), PII fallback on other values and inside arrays, invalid-JSON and invalid-`keyModes` handling, custom key patterns, fail-safe depth guard.
 - `index` — smoke test that `apply()` exports the Cordis plugin contract and registers 4 tools + 1 skill against the real `@deepseek-ai/dsh-tools`, with load-time output-schema validation.
 
 Local `--patch` development: when the patch references this plugin by absolute path, bare imports (`@deepseek-ai/dsh-tools`) resolve from the plugin directory upward, so `node_modules/@deepseek-ai/dsh-tools` must exist there. Create a symlink (POSIX) or junction (Windows, `New-Item -ItemType Junction`) to a local `dsh-tools` checkout instead of installing from the registry if you want to test against unreleased changes.

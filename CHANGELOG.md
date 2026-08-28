@@ -6,6 +6,38 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.5] - 2026-08-28
+
+Fix release from an adversarial self-review: closes the `onTimeout` wiring gap and three structured-redaction leak paths. No new tools.
+
+### Fixed
+
+- `security_scan_text`: the documented `onTimeout` config (`allow`/`review`/`block`) is now wired through the plugin entry. Previously the key was silently ignored and every budget expiry stayed fail-open; fail-closed flows can now be enabled from `cordis.patch.yml`.
+- `security_redact_json`: a sensitive key now replaces its WHOLE value with `[REDACTED]` regardless of type (number, boolean, array, nested object), matching the documented "structural, beats obfuscation" promise. Previously only direct string values were replaced.
+- `security_redact_json`: strings inside arrays under ordinary keys now go through the PII fallback (previously any array content passed through unredacted).
+- `security_redact_json`: the depth guard now fails safe — strings and containers beyond `maxDepth` (32) are replaced by `[REDACTED]` instead of passing through; reference cycles are broken at the guard.
+- `security_redact_json`: invalid `keyModes` regexes return the `error` field instead of throwing a raw SyntaxError; oversized `keyModes` (more than 20 patterns, or any pattern over 200 characters) is rejected the same way.
+- `security_scan_text`: `scannedLength` now reports the scanned (post-truncation) length, consistent with `inputSha256`.
+- `security_audit`: the `config-secrets` message no longer implies the capped count (10) is the total.
+- `lib/logger.js`: a misconfigured `logFile` (ENOENT/EACCES, sync or async) degrades to sink-only output with one sanitized warning instead of risking an unhandled stream error that could take the host down.
+- Startup log and header comment now say 4 tools (4 have been registered since 0.2.0).
+
+### Changed
+
+- `security_audit` env checks read the injected `ctx.env` (falling back to `process.env`) for consistency.
+- CI: the test job declares `permissions: contents: read`.
+- Docs: SECURITY.md supported table lists 0.2.x; README documents `logEnabled` and refines the "no write paths" claim (the opt-in `logFile` is the only append-only write); the classifier adapter comment calls `/api/generate` Ollama-native.
+
+### Upgrade notes
+
+- Drop-in upgrade from 0.2.4 / 0.2.3 / 0.2.2; no API changes. The `redact_json` changes only ever make outputs MORE redacted.
+- Behavior change to review: sensitive keys now redact whole non-string values. Flows that need to read numbers/objects under sensitive keys must move those values under non-sensitive key names.
+- Tested against `@deepseek-ai/dsh-tools` 0.1.0-rc.7.
+
+### Known issues
+
+- Unchanged: Windows ACL caveat, session-PII sampling bounds, type-limited PII redaction, heuristic injection rules.
+
 ## [0.2.4] - 2026-08-28
 
 Maintenance release: clears the two warnings raised by the dsh.so automated

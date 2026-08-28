@@ -1,6 +1,6 @@
 {
   "name": "dsh-secure-audit",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Read-only security & compliance toolkit for DeepSeek Harness: prompt-injection detection (rule engine with a pluggable model classifier), Chinese-PII and structured-JSON redaction, and a local configuration security audit that emits redacted, reproducible, self-checksummed risk reports.",
   "type": "module",
   "main": "index.js",

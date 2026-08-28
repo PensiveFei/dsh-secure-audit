@@ -77,3 +77,15 @@ test('disabled logger writes nothing', () => {
   logger.child('req-5').emit('info', 'x', {});
   assert.equal(lines.length, 0);
 });
+
+test('a misconfigured logFile degrades to sink output without crashing', async () => {
+  const { sink, lines } = capture();
+  // A drive/dir that must not exist: the append stream fails, and the logger
+  // must fall back to the sink instead of letting the stream error escape.
+  const logger = createLogger({ sink, logFile: 'Q:/definitely-missing-dir/audit.log' });
+  logger.child('req-6').emit('info', 'x', {});
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  logger.child('req-7').emit('info', 'y', {});
+  logger.dispose();
+  assert.ok(lines.length >= 1, 'events must still reach the sink after the file stream fails');
+});

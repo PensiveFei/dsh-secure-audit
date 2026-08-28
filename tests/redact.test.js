@@ -142,13 +142,20 @@ test('redactJson replaces sensitive-key values structurally', () => {
   assert.deepEqual(replacedKeys.map((k) => k.key), ['api_key', 'token']);
 });
 
-test('redactJson handles nested objects and arrays with JSONPath labels', () => {
+test('redactJson replaces a sensitive-key container wholly and labels the JSONPath', () => {
   const input = JSON.stringify({ credentials: [{ user: 'a', password: 'p@ss' }], items: ['x'] });
   const { redactedJson, replacedKeys } = redactJson(input);
   const out = JSON.parse(redactedJson);
-  assert.equal(out.credentials[0].password, '[REDACTED]');
+  // 0.2.5 contract: the sensitive key's WHOLE value is replaced regardless
+  // of type — no structure of a secret container survives.
+  assert.equal(out.credentials, '[REDACTED]');
   assert.deepEqual(out.items, ['x']);
-  assert.equal(replacedKeys[0].path, '$.credentials[0].password');
+  assert.equal(replacedKeys[0].path, '$.credentials');
+  // JSONPath labels still reach deep through NON-sensitive parents.
+  const deep = JSON.stringify({ config: { creds: [{ token: 'x' }] } });
+  const r2 = redactJson(deep);
+  assert.equal(r2.replacedKeys[0].path, '$.config.creds[0].token');
+  assert.equal(JSON.parse(r2.redactedJson).config.creds[0].token, '[REDACTED]');
 });
 
 test('redactJson accepts an already-parsed object', () => {
@@ -191,5 +198,42 @@ test('redactJson depth guard does not crash on deep nesting', () => {
   const { redactedJson, error } = redactJson(JSON.stringify({ a: deep }));
   assert.equal(error, null);
   assert.ok(redactedJson.length > 0);
+});
+
+test('redactJson replaces whole non-string values under sensitive keys', () => {
+  const { redactedJson, replacedKeys } = redactJson({
+    token: 1234567890,
+    pwd: true,
+    credentials: { user: 'x', password: 'y' },
+    tokens: ['alpha-secret', 'beta-secret'],
+  });
+  assert.equal(redactedJson, JSON.stringify({
+    token: '[REDACTED]', pwd: '[REDACTED]', credentials: '[REDACTED]', tokens: '[REDACTED]',
+  }));
+  assert.equal(replacedKeys.length, 4);
+});
+
+test('redactJson applies the PII fallback to strings inside arrays', () => {
+  const { redactedJson, piiCount } = redactJson({
+    phones: ['call 13812345678 asap'],
+    emails: ['zhangsan@example.com'],
+  });
+  assert.ok(redactedJson.includes('138****5678'), 'phone inside array must be masked');
+  assert.ok(redactedJson.includes('zh***@example.com'), 'email inside array must be masked');
+  assert.equal(piiCount, 2);
+});
+
+test('redactJson depth guard fails safe beyond maxDepth (no leak)', () => {
+  let deep = JSON.stringify({ token: 'super-secret-value' });
+  for (let i = 0; i < 40; i += 1) deep = JSON.stringify({ n: JSON.parse(deep) });
+  const { redactedJson } = redactJson(deep);
+  assert.ok(!redactedJson.includes('super-secret-value'), 'secret beyond depth must not leak');
+  assert.ok(redactedJson.includes('[REDACTED]'));
+});
+
+test('redactJson numbers/booleans under non-sensitive keys pass through', () => {
+  const { redactedJson, replacedKeys } = redactJson({ count: 42, ok: true });
+  assert.equal(redactedJson, '{"count":42,"ok":true}');
+  assert.equal(replacedKeys.length, 0);
 });
 

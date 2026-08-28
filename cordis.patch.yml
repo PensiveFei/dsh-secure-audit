@@ -4,7 +4,8 @@
 #
 # The plugin is strictly READ-ONLY: it inspects configuration, session files,
 # plugin sources, paths, network bindings and environment variables, and
-# never writes, deletes or executes anything.
+# never writes, deletes or executes anything. (The only write path is the
+# opt-in `logFile` audit log below — an append-only JSONL file you configure.)
 
 - insert:
     - id: secure-audit
@@ -12,13 +13,15 @@
 
 # All plugin config keys are optional; defaults are applied by the plugin.
 #   config:
-#     scanTimeoutMs: 100        # cooperative scan budget (ms); on expiry -> "allow" + warning
+#     scanTimeoutMs: 100        # cooperative scan budget (ms); on expiry the decision follows onTimeout
+#     onTimeout: allow          # policy on budget expiry: allow (fail-open) / review / block (fail-closed)
 #     scanMaxLength: 200000     # hard cap on scanned text length
 #     cacheSize: 512            # LRU entries for identical scan inputs
 #     blockThreshold: 0.8
 #     reviewThreshold: 0.5
 #     allowlist: []             # rule ids always downgraded to "allow" (appeal channel)
 #     maskChar: "*"
+#     logEnabled: true          # set false to silence the structured JSONL event log
 #     logFile: ""               # empty = structured JSON lines go to ctx.logger
 #     classifier:               # optional model layer (see README)
 #       adapter: ollama

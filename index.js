@@ -1,9 +1,10 @@
 /**
  * dsh-secure-audit — host plugin entry.
  *
- * Registers three READ-ONLY tools with the DSH tool registry:
+ * Registers four READ-ONLY tools with the DSH tool registry:
  *   - security_scan_text     prompt-injection detection (rule + optional model)
  *   - security_redact_text   Chinese-focused PII redaction
+ *   - security_redact_json   structured JSON redaction (key + PII channels)
  *   - security_audit         local configuration security audit (redacted report)
  * and one runtime skill (`security-review`) when the skills service exists
  * (optional service via ctx.get — no hard dependency).
@@ -143,6 +144,10 @@ export function apply(ctx, config = {}) {
     allowlist: Array.isArray(config.allowlist) ? config.allowlist : [],
     classifier: createClassifier(config.classifier ?? null),
     maskChar: typeof config.maskChar === 'string' && config.maskChar ? config.maskChar : '*',
+    // Timeout policy on budget expiry: 'allow' (fail-open default) /
+    // 'review' / 'block' (fail-closed). Invalid values fall back to the
+    // engine default inside createInjectionScanner.
+    onTimeout: config.onTimeout,
   });
 
   // Load-time schema validation: a regression in any output schema must
@@ -246,7 +251,7 @@ export function apply(ctx, config = {}) {
         truncated: result.truncated,
         warnings: result.warnings,
         classifierUsed: result.classifierUsed,
-        scannedLength: args.text.length,
+        scannedLength: result.scannedLength ?? args.text.length,
         ruleset: result.ruleset,
       };
     },
@@ -363,9 +368,32 @@ export function apply(ctx, config = {}) {
     async execute(args) {
       const requestId = randomUUID();
       const log = logger.child(requestId);
-      const keyPattern = Array.isArray(args.keyModes) && args.keyModes.length > 0
-        ? new RegExp(args.keyModes.join('|'), 'i')
-        : undefined;
+      let keyPattern;
+      if (Array.isArray(args.keyModes) && args.keyModes.length > 0) {
+        // Guard the user-supplied patterns: an invalid regex must surface as
+        // the tool's error field (not a raw throw), and oversized input is
+        // rejected before it can become a pathological compiled pattern.
+        if (args.keyModes.length > 20 || args.keyModes.some((p) => typeof p !== 'string' || p.length === 0 || p.length > 200)) {
+          return {
+            requestId,
+            redactedJson: '',
+            replacedKeys: [],
+            piiCount: 0,
+            error: 'invalid keyModes: at most 20 non-empty string patterns, each up to 200 characters',
+          };
+        }
+        try {
+          keyPattern = new RegExp(args.keyModes.join('|'), 'i');
+        } catch (err) {
+          return {
+            requestId,
+            redactedJson: '',
+            replacedKeys: [],
+            piiCount: 0,
+            error: 'invalid keyModes regex (' + (err?.message ?? 'parse error') + ')',
+          };
+        }
+      }
       const result = redactJson(args.json, {
         keyPattern,
         maskChar: args.maskChar,
@@ -487,7 +515,7 @@ export function apply(ctx, config = {}) {
   }
 
   ctx.logger.info(
-    '[secure-audit] ready: %d injection rules (ruleset v%d), 3 tools registered',
+    '[secure-audit] ready: %d injection rules (ruleset v%d), 4 tools registered',
     INJECTION_RULES.length,
     scanner.ruleset().version,
   );
