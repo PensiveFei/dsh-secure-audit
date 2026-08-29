@@ -236,4 +236,37 @@ test('redactJson numbers/booleans under non-sensitive keys pass through', () => 
   assert.equal(redactedJson, '{"count":42,"ok":true}');
   assert.equal(replacedKeys.length, 0);
 });
+// ---------------------------------------------------------------------------
+// 0.2.6: high-entropy mode (opt-in, off by default)
+// ---------------------------------------------------------------------------
+
+test('high_entropy is NOT applied by default', () => {
+  const token = 'aZ9kQ2w8Xm4P7cV1nB6hJ3fG0sL5tRy2uI0oP';
+  const { redacted, findings } = redactText('token ' + token + ' end');
+  assert.equal(redacted, 'token ' + token + ' end');
+  assert.deepEqual(findings, []);
+});
+
+test('high_entropy mode masks random secret-like tokens on request', () => {
+  const token = 'aZ9kQ2w8Xm4P7cV1nB6hJ3fG0sL5tRy2uI0oP';
+  const { redacted, findings } = redactText('token ' + token + ' end', { modes: ['high_entropy'] });
+  assert.ok(!redacted.includes(token));
+  assert.equal(findings[0].type, 'high_entropy');
+  assert.match(redacted, /aZ9k\*{24}I0oP/); // prefix 4 + suffix 4 kept, middle masked
+});
+
+test('high_entropy mode does NOT mask UUIDs or hex hashes', () => {
+  const uuid = '550e8400-e29b-41d4-a716-446655440000';
+  const hex = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
+  const { redacted, findings } = redactText(uuid + ' ' + hex, { modes: ['high_entropy'] });
+  assert.equal(redacted, uuid + ' ' + hex);
+  assert.equal(findings.length, 0);
+});
+
+test('high_entropy mode leaves ordinary prose untouched', () => {
+  const prose = 'The quick brown fox jumps over the lazy dog and keeps running.';
+  const { redacted, findings } = redactText(prose, { modes: ['high_entropy'] });
+  assert.equal(redacted, prose);
+  assert.equal(findings.length, 0);
+});
 
