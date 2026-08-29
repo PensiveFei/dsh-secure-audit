@@ -14,6 +14,8 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { defineTool, assertObjectJsonSchema } from '@deepseek-ai/dsh-tools';
 import { createInjectionScanner } from './lib/injection.js';
@@ -27,6 +29,37 @@ export const name = 'dsh-secure-audit';
 /** Register only after the tools service is ready. */
 export const inject = ['tools'];
 
+// ---------------------------------------------------------------------------
+// Host capability probe (read-only; feeds the security_audit host-capabilities
+// check). Every lookup is guarded: a missing package or unreadable manifest
+// degrades to 'n/a' — a probe failure must never prevent plugin startup.
+// ---------------------------------------------------------------------------
+
+const require = createRequire(import.meta.url);
+
+/**
+ * Read the installed version of a resolvable package without relying on the
+ * package `exports` map: resolve the entry file, then read package.json next
+ * to its parent directory.
+ */
+function pkgVersion(pkg) {
+  try {
+    const entry = require.resolve(pkg);
+    const manifest = JSON.parse(readFileSync(join(dirname(entry), '..', 'package.json'), 'utf8'));
+    return typeof manifest.version === 'string' ? manifest.version : 'unknown';
+  } catch {
+    return 'n/a';
+  }
+}
+
+function probeHost(ctx, rulesetVersion) {
+  return {
+    dshToolsVersion: pkgVersion('@deepseek-ai/dsh-tools'),
+    dshSessionVersion: pkgVersion('@deepseek-ai/dsh-session'),
+    skillsAvailable: Boolean(ctx.get('skills')),
+    ruleset: rulesetVersion,
+  };
+}
 // ---------------------------------------------------------------------------
 // Skill loading (runtime registration via optional `skills` service)
 // ---------------------------------------------------------------------------
@@ -109,7 +142,7 @@ const STATUS_ICONS = Object.freeze({
 function renderAudit(args, value) {
   const s = value.summary;
   const lines = [
-    `**Security audit** — pass ${s.pass} / warn ${s.warn} / fail ${s.fail} / error ${s.error} / info ${s.info}`,
+    `**Security audit** — pass ${s.pass} / warn ${s.warn} / fail ${s.fail} / error ${s.error} / info ${s.info} (profile: ${value.profile ?? 'full'})`,
   ];
   for (const check of value.checks) {
     const icon = STATUS_ICONS[check.status] ?? '•';
@@ -149,6 +182,9 @@ export function apply(ctx, config = {}) {
     // engine default inside createInjectionScanner.
     onTimeout: config.onTimeout,
   });
+
+  // Read-only host capability snapshot for the security_audit check.
+  const hostInfo = probeHost(ctx, scanner.ruleset().version);
 
   // Load-time schema validation: a regression in any output schema must
   // fail the plugin loudly at apply(), not surface at runtime (mirrors
@@ -202,6 +238,7 @@ export function apply(ctx, config = {}) {
                 description: { type: 'string' },
                 matches: { type: 'integer' },
                 snippet: { type: 'string' },
+                via: { type: 'string', description: 'Which derived text produced the hit: plain | normalized | base64.' },
               },
             },
           },
@@ -260,7 +297,7 @@ export function apply(ctx, config = {}) {
   // --- security_redact_text -------------------------------------------------
   registerWithSchemaCheck(defineTool({
     name: 'security_redact_text',
-    description: 'Redact personally identifiable information (PII) from text, optimized for Chinese data: CN mobile numbers, CN ID cards (date-validated to avoid order-number false positives), CN bank cards, emails, IPv4 addresses, API keys/tokens, and credentials embedded in URLs. Returns the masked text plus per-type counts with masked samples. The output is always safe to log, store, or display. Covers only the listed types via regex/structural checks: names, addresses, and other context-sensitive PII are NOT masked — redaction is a mitigation, not a guarantee.',
+    description: 'Redact personally identifiable information (PII) from text, optimized for Chinese data: CN mobile numbers, CN ID cards (date-validated to avoid order-number false positives), CN bank cards, emails, IPv4 addresses, API keys/tokens, and credentials embedded in URLs. Returns the masked text plus per-type counts with masked samples. The output is always safe to log, store, or display. Covers only the listed types via regex/structural checks: names, addresses, and other context-sensitive PII are NOT masked — redaction is a mitigation, not a guarantee. Pass modes: ["high_entropy"] to additionally mask random secret-like tokens (opt-in; off by default to avoid over-redaction).',
     parameters: {
       text: {
         type: 'string',
@@ -435,6 +472,11 @@ export function apply(ctx, config = {}) {
         type: 'integer',
         description: 'Max session files to scan for stored PII; default 10. Raise it for large session directories.',
       },
+      profile: {
+        type: 'string',
+        enum: ['quick', 'full'],
+        description: 'Audit depth: quick uses reduced file/session sampling budgets for large trees; full (default) runs the full deterministic walk.',
+      },
     },
     output: {
       schema: {
@@ -448,6 +490,7 @@ export function apply(ctx, config = {}) {
           reportSha256: { type: 'string', description: 'SHA-256 of the report body (excluding generatedAt); verify the report was not altered and diff runs byte-for-byte.' },
           baseDir: { type: 'string' },
           workspace: { type: 'string' },
+          profile: { type: 'string', description: 'Audit profile that produced this report: quick | full.' },
           scopesAudited: { type: 'array', items: { type: 'string' } },
           checks: {
             type: 'array',
@@ -458,6 +501,8 @@ export function apply(ctx, config = {}) {
                 id: { type: 'string' },
                 category: { type: 'string' },
                 severity: { type: 'string' },
+                owasp: { type: 'string', description: 'OWASP Top 10 for LLM Applications 2025 mapping (e.g. LLM02); empty when not mapped.' },
+                agentic: { type: 'string', description: 'OWASP Agentic Top 10 category name; empty when not mapped.' },
                 status: { type: 'string', enum: ['pass', 'warn', 'fail', 'error', 'info'] },
                 message: { type: 'string' },
                 evidence: { type: 'string' },
@@ -495,6 +540,13 @@ export function apply(ctx, config = {}) {
         baseDir: args.baseDir,
         workspace: args.workspace,
         sampleLimit: args.sampleLimit,
+        profile: args.profile,
+        hostInfo,
+        // Live registry advisory lookup is opt-in (default offline). It
+        // sends installed plugin names+versions to registry.npmjs.org —
+        // documented in README so enabling it is an informed choice.
+        supplyChainLive: config.supplyChainLive === true,
+        supplyChainTimeoutMs: config.supplyChainTimeoutMs,
       });
       log.audit(report.summary);
       return { requestId, ...report };
