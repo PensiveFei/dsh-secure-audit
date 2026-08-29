@@ -23,6 +23,9 @@
 #     maskChar: "*"
 #     logEnabled: true          # set false to silence the structured JSONL event log
 #     logFile: ""               # empty = structured JSON lines go to ctx.logger
+#     supplyChainLive: false    # opt-in: security_audit queries registry.npmjs.org advisories
+#                               # (sends installed plugin names+versions; offline inventory is default)
+#     supplyChainTimeoutMs: 3000
 #     classifier:               # optional model layer (see README)
 #       adapter: ollama
 #       endpoint: http://localhost:11434/api/generate

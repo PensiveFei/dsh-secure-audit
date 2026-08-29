@@ -13,9 +13,10 @@ lib/injection.js         Rule engine: LRU cache, budget timeout, onTimeout polic
                          riskLevel + inputSha256 output, classifier hook
 lib/redact.js            PII redaction engine (regex + structural validation)
                          + redactJson (recursive sensitive-key redaction)
-lib/audit.js             Read-only audit: 9 deterministic checks + reportSha256
+lib/audit.js             Read-only audit: 11 deterministic checks + reportSha256
 lib/logger.js            Structured JSON-lines logger, auto-redaction
 skills/security-review/  Agent skill (registered via optional `skills` service)
+scripts/eval.mjs         Detection-quality eval over the adversarial suite (CI)
 tests/                   node:test suite + adversarial sample library
 ```
 
@@ -38,6 +39,15 @@ cheap); a model classifier runs only when the rules are inconclusive.
   doubles as the regression suite in CI. Benign-vocabulary cases
   ("act as a senior reviewer", "jailbreak detection", "build a bomb shelter",
   "运行命令 npm install", "你现在是怎么想的") are pinned to `allow`.
+- **Obfuscation-resistance layer (ruleset v4).** Plain-text rules are dodged by
+  zero-width characters, full-width / Cyrillic homoglyphs, and base64 payloads,
+  so the scanner derives up to 4 bounded variants per input: the raw subject, a
+  normalized copy (zero-width stripped; `Ｉｇｎｏｒｅ`/`previоus` mapped to ASCII),
+  and base64-decoded candidates (printable-gate filtered, ≤ 4 tokens of ≤ 4 KB).
+  Hits are merged per distinct rule id (first variant wins), each reason carries
+  `via` (`plain` | `normalized` | `base64`), and the shared cooperative budget
+  still bounds total work — more variants mean fewer rules scanned, never
+  unbounded decode. `inputSha256` is over the raw subject, so replay is stable.
 - **LRU cache.** SHA-256(text) + `RULESET_VERSION` key; identical inputs skip
   re-scanning. `RULESET_VERSION` is bumped whenever rule semantics change so
   stale cached verdicts cannot survive an upgrade.
@@ -74,6 +84,15 @@ number looks like an ID card). Mitigations:
   rest: `138****5678`, `1101**********1234`, `****9012`, `zh***@example.com`,
   `***.***.***.***`, `sk-abc********`.
 
+**High-entropy mode (`high_entropy`, opt-in).** Random secret-like tokens
+(length ≥ 24, Shannon entropy ≥ 4.5 bits/char, ≥ 2 character classes) are
+masked only when explicitly requested via `modes: ['high_entropy']` — excluded
+from the default mode set so ordinary long mixed tokens are not over-redacted.
+UUIDs (~3.6 bits/char) and hex hashes (~4.0) deliberately fail the entropy
+threshold. The same detector feeds `config-secrets` as an info-level auxiliary
+signal for high-entropy values under non-secret key names (never escalates to
+fail).
+
 **Structured redaction (`redactJson`).** A second, structure-aware channel for
 JSON input: any object key matching the sensitive-key pattern
 (`api_key`/`token`/`secret`/`password`/`authorization`/`credential`...)
@@ -86,19 +105,29 @@ session context to a third-party model (inspired by dsh-auto-review's
 
 ## Capability 3 — Read-only audit (`lib/audit.js`)
 
-Nine deterministic checks across six scopes:
+Eleven deterministic checks across seven scopes, each carrying an `owasp`
+(OWASP Top 10 for LLM Applications 2025) and `agentic` (OWASP Agentic Top 10)
+mapping for framework-aligned reporting:
 
 | Check | Scope | Finds |
 | --- | --- | --- |
-| `config-secrets` | config | secret-like keys with non-empty values; evidence shows key + line, never the value |
+| `config-secrets` | config | secret-like keys with non-empty values (+ info-level high-entropy auxiliary signal); evidence shows key + line, never the value |
 | `config-permissions` | config | group/other-writable config files (best-effort on Windows) |
 | `sessions-structure` | sessions | session directory inventory |
 | `sessions-sensitive-content` | sessions | redactable PII in a sample of session files |
 | `plugins-inventory` | plugins | local plugin packages (`plugins/`, `node_modules/@deepseek-ai`) |
 | `plugins-patch-sources` | plugins | `cordis.yml`/`cordis.patch.yml` lines referencing remote sources |
+| `deps-supply-chain` | plugins | plugin version inventory (offline, deterministic) or npm registry advisories (opt-in `supplyChainLive`, bounded timeout) |
 | `paths-permissions` | paths | world-writable key paths; workspace inside temp |
-| `network-bindings` | network | `0.0.0.0`/`::` bindings from env and config; active interface count |
+| `network-bindings` | network | `0.0.0.0`/`::` bindings from env and config; on Linux, `/proc/net/{tcp,tcp6}` LISTEN wildcard sockets; active interface count |
 | `env-secrets` | env | secret-like environment variables (names only) |
+| `host-capabilities` | host | dsh-tools / dsh-session versions, skills availability, ruleset (injected from the plugin entry) |
+
+**Profile tiers.** `profile: quick|full` (default `full`) trades depth for
+speed on large trees: `quick` walks at most 50 files and samples at most 3
+session files, and skips the live supply-chain lookup. Per-call
+`maxFiles`/`maxBytes` overrides stay available. The report carries the
+effective `profile` and a matching `limitations` note.
 
 Determinism: fixed check order, sorted arrays, no randomness; `generatedAt`
 is metadata and can be stripped for byte-identical diffing. Every check is

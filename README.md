@@ -28,10 +28,10 @@ Four tools and one skill:
 
 | Capability | Tool | What it does |
 | --- | --- | --- |
-| Prompt-injection detection | `security_scan_text` | Rule engine (English + Chinese) with LRU cache, fail-open timeout (configurable fail-closed), and a pluggable model classifier. Returns `allow` / `review` / `block`, a `riskLevel`, and an `inputSha256` for replayable decisions. |
+| Prompt-injection detection | `security_scan_text` | Rule engine (English + Chinese) with LRU cache, fail-open timeout (configurable fail-closed), a pluggable model classifier, and an obfuscation-resistance layer (zero-width/full-width/homoglyph normalization + bounded base64 decoding, ruleset v4). Returns `allow` / `review` / `block`, a `riskLevel`, and an `inputSha256` for replayable decisions. |
 | PII redaction | `security_redact_text` | Masks CN mobile numbers, CN ID cards, CN bank cards, emails, IPv4, API keys, and URL credentials. Output is safe to log or display. |
 | Structured JSON redaction | `security_redact_json` | Recursively redacts sensitive values inside JSON by key name (`api_key`, `token`, `secret`, `password`, `authorization`, ...) plus a PII fallback on other values. The structure is preserved — safe to hand tool-call arguments or session context to a third-party model. |
-| Local security audit | `security_audit` | Read-only audit of config secrets, file permissions, session-file PII, plugin sources, network bindings, and env vars. Deterministic, redacted report with a self-checksum (`reportSha256`). |
+| Local security audit | `security_audit` | 11 read-only checks across config / sessions / plugins / paths / network / env / host, mapped to OWASP LLM + Agentic Top 10, with `quick|full` profile tiers, Linux `/proc/net` wildcard-bind ground truth, an offline plugin supply-chain inventory (opt-in live registry check), and a deterministic, redacted report with a self-checksum (`reportSha256`). |
 | Security review skill | `security-review` | Registered at runtime via the optional `skills` service; teaches the agent how to use the tools and explain verdicts. |
 
 The plugin never writes, deletes, or executes anything on the audited system. That is a hard constraint of the codebase, not a convention: the audit/redaction/scan code paths perform reads only; the single write path in `lib/` is the opt-in `logFile` audit log in `lib/logger.js` (append-only JSONL, disabled by default).
@@ -101,10 +101,17 @@ Decisions:
 - `review` — ambiguous; the pluggable classifier is consulted if configured.
 - `allow` — nothing above `reviewThreshold`. If `warnings` mention a budget timeout or truncation, that means "not fully scanned", not "safe".
 
+Since ruleset v4 the scanner also runs over a normalized copy of the input
+(zero-width characters stripped; full-width and Cyrillic lookalikes mapped to
+ASCII) and up to four bounded base64-decoded candidates, so obfuscated
+spellings (`Ig\u200bn\u200bo\u200br\u200be …`, `Ｉｇｎｏｒｅ …`, `previоus …`,
+base64 payloads) still match. Each reason carries `via` — `plain`,
+`normalized`, or `base64` — telling you which derived text produced the hit.
+
 Each result also carries:
 
 - `riskLevel` — `low` / `medium` / `high` derived from the hit severities and the decision band; policies and auto-approvers can route on it.
-- `inputSha256` — SHA-256 of the scanned text, so any decision can be locally replayed from the exact bytes scanned (pair it with `ruleset`).
+- `inputSha256` — SHA-256 of the raw scanned text (not the derived variants), so any decision can be locally replayed from the exact bytes scanned (pair it with `ruleset`).
 
 On a budget timeout the decision follows the configured `onTimeout` policy (default `allow`, i.e. fail-open; set `review` or `block` for fail-closed sensitive flows), `confidence` is 0, and `warnings` explains why — reasons are dropped because the scan was incomplete.
 
@@ -115,6 +122,11 @@ On a budget timeout the decision follows the configured `onTimeout` policy (defa
 { "text": "我的手机 13812345678，邮箱 zhangsan@example.com" }
 // redacted: "我的手机 138****5678，邮箱 zh***@example.com"
 ```
+
+A `high_entropy` mode is available for random secret-like tokens (length ≥ 24,
+Shannon entropy ≥ 4.5 bits/char, ≥ 2 character classes). It is **opt-in**
+(`modes: ["high_entropy"]`) so ordinary prose with long mixed tokens is not
+over-redacted; UUIDs and hex hashes are deliberately not masked.
 
 False-positive guards, all covered by tests:
 
@@ -143,12 +155,36 @@ Since 0.2.5 the key channel replaces the whole value regardless of its type (num
 ```jsonc
 // security_audit
 {
-  "scope": ["config", "sessions", "plugins", "paths", "network", "env"],
-  "sampleLimit": 10 // max session files scanned for stored PII; raise for large session dirs
+  "scope": ["config", "sessions", "plugins", "paths", "network", "env", "host"],
+  "sampleLimit": 10, // max session files scanned for stored PII; raise for large session dirs
+  "profile": "full"  // "quick" uses reduced file/session budgets for large trees
 }
 ```
 
-Returns `checks[]` plus a `summary` of `pass`/`warn`/`fail`/`error`/`info`. Evidence is redacted and path-normalized (`<base>` replaces the audited root, `<workspace>` the workspace), so reports can be shared. Two runs against the same tree produce identical `checks` and the same `reportSha256` (the self-checksum covers the report body, excluding `generatedAt`, so consumers can verify a report was not altered in transit or diff runs byte-for-byte).
+Returns `checks[]` plus a `summary` of `pass`/`warn`/`fail`/`error`/`info`, the
+`profile` that produced it, and per-check `owasp` (OWASP Top 10 for LLM
+Applications 2025) / `agentic` (OWASP Agentic Top 10) mappings. Evidence is
+redacted and path-normalized (`<base>` replaces the audited root,
+`<workspace>` the workspace), so reports can be shared. Two runs against the
+same tree produce identical `checks` and the same `reportSha256` (the
+self-checksum covers the report body, excluding `generatedAt`, so consumers
+can verify a report was not altered in transit or diff runs byte-for-byte).
+
+Eleven checks across seven scopes:
+
+| Check | Scope | Finds |
+| --- | --- | --- |
+| `config-secrets` | config | secret-like keys (+ info-level high-entropy auxiliary signal) |
+| `config-permissions` | config | group/other-writable config files |
+| `sessions-structure` | sessions | session directory inventory |
+| `sessions-sensitive-content` | sessions | redactable PII in a sample of session files |
+| `plugins-inventory` | plugins | local plugin packages |
+| `plugins-patch-sources` | plugins | `cordis.yml` lines referencing remote sources |
+| `deps-supply-chain` | plugins | plugin version inventory (offline) / registry advisories (opt-in live) |
+| `paths-permissions` | paths | world-writable key paths; workspace inside temp |
+| `network-bindings` | network | all-interface binds from env/config **and, on Linux, `/proc/net` LISTEN sockets** |
+| `env-secrets` | env | secret-like environment variables (names only) |
+| `host-capabilities` | host | dsh-tools / dsh-session versions, skills availability, ruleset |
 
 ## Configuration
 
@@ -167,6 +203,8 @@ All keys optional (see `cordis.patch.yml`).
 | `maskChar` | `*` | Masking character |
 | `logEnabled` | `true` | Emit the structured JSONL event log; `false` silences it |
 | `logFile` | `""` | Append JSONL audit log; empty = `ctx.logger` only |
+| `supplyChainLive` | `false` | **Opt-in**: `security_audit` sends installed plugin names+versions to registry.npmjs.org for advisory checks (offline inventory is the default; live mode adds a `limitations` note and is skipped in `profile: quick`) |
+| `supplyChainTimeoutMs` | `3000` | Timeout for the live supply-chain registry call |
 
 ### Pluggable model classifier
 
@@ -237,8 +275,13 @@ before relying on it.
   that run does not cover.
 - File-permission checks use POSIX mode bits; **Windows ACLs are not
   inspected** (Node has no native ACL API).
+- Live listening-port ground truth runs on **Linux only** (`/proc/net`);
+  other platforms rely on env/config evidence.
 - Session-file PII sampling covers up to 10 files by default; raise
   `sampleLimit` for large session directories.
+- The live `deps-supply-chain` registry lookup is **opt-in**
+  (`supplyChainLive: true`) and sends installed plugin names+versions to
+  registry.npmjs.org; offline inventory is the default.
 - Absence of findings does not imply the machine is secure.
 
 **Compatibility.**
@@ -261,6 +304,7 @@ before relying on it.
 ```bash
 npm install          # installs the peer dep for tests
 npm test             # node --test (auto-discovers tests/*.test.js)
+npm run eval         # detection-quality metrics over the adversarial suite (CI)
 ```
 
 Test coverage:
@@ -324,6 +368,9 @@ Yes — the latest release is published on the npm registry. `dsh plugin add dsh
 - Prometheus metrics (interception rate, false-positive rate, P99 latency)
 - Rule grayscale rollout (per-traffic percentage) and a per-tenant whitelist hot path
 - NER-assisted redaction for names and addresses; encrypted audit-log retention policy presets
+- Live supply-chain advisories on by default (per-tenant opt-out instead of opt-in)
+- Output-side scanning (`security_scan_output`) against LLM05 (Improper Output Handling) / data leakage
+- Decision-replay invariant: an exported `invariant` that re-scans logged `inputSha256` values and asserts the logged decision matches
 
 ## License
 

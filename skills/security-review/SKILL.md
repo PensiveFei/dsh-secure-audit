@@ -24,7 +24,8 @@ to echo raw secrets.
 1. **Scan first, mask always.** When you receive user-supplied text, pass it
    through `security_scan_text` with `maskText: true`. If the user asks you to
    relay or store the text, also pass it through `security_redact_text` and
-   use only the `redacted` output.
+   use only the `redacted` output. For random-looking tokens (API keys without
+   a known prefix), pass `modes: ['high_entropy']` to the redactor.
 2. **Interpret, do not just echo.** Explain the decision in plain language:
    - `block` — one or more high-confidence rules hit; name the rules
      (`ruleId`, `severity`) and quote only the redacted snippet.
@@ -43,7 +44,9 @@ to echo raw secrets.
    verdict, offer to re-scan with the allowlist entry added.
 4. **Local audit.** For posture questions, run `security_audit`. Present the
    summary counts, then the failing/warning checks with their `remediation`.
-   Treat `evidence` as already-redacted and safe to show.
+   Treat `evidence` as already-redacted and safe to show. On large trees use
+   `profile: 'quick'` for a fast first pass; note that the report carries
+   `owasp`/`agentic` mappings for framework-aligned reporting.
 5. **Never leak secrets.** If a scan or audit surfaces a secret-like value,
    report only that a value exists and where — never the value itself.
    Anything that looks like a token/password should be rotated, not quoted.

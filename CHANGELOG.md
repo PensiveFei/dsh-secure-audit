@@ -6,6 +6,78 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.6] - 2026-08-29
+
+Feature + hardening release: obfuscation-resistant injection detection, two
+new audit checks, audit profile tiers, OWASP mapping, a high-entropy
+redaction mode, and a detection-quality eval script. Built and installed
+locally for verification; not yet published.
+
+### Added
+
+- **Obfuscation-resistance layer (ruleset v4)** for `security_scan_text`:
+  the scanner now also inspects a zero-width / full-width / Cyrillic-homoglyph
+  normalized copy of the input and up to 4 bounded base64-decoded candidates.
+  Hits are merged per distinct rule id and tagged with `via`
+  (`plain` | `normalized` | `base64`); snippets show the derived text.
+  `inputSha256` still covers the raw scanned bytes, so decisions remain
+  locally replayable.
+- **`security_audit` two new checks:**
+  - `deps-supply-chain` (plugins, OWASP LLM03 / Agentic Supply Chain):
+    offline plugin inventory by default (deterministic, no network); an
+    opt-in `supplyChainLive` config additionally queries the npm registry
+    audit endpoint with a bounded timeout. The live lookup sends installed
+    plugin names+versions to registry.npmjs.org and is documented as such —
+    it stays OFF by default.
+  - `host-capabilities` (host scope): reports the running host's dsh-tools /
+    dsh-session versions, skills-service availability, ruleset, and plugin
+    version, injected from the plugin entry.
+- **`security_audit` profile tiers**: `profile: quick|full` (default `full`).
+  `quick` cuts the file walk to 50 files and session sampling to 3; per-call
+  `maxFiles`/`maxBytes` overrides are also accepted. The report carries the
+  effective `profile`.
+- **OWASP mapping**: every check now carries `owasp` (OWASP Top 10 for LLM
+  Applications 2025 code, e.g. LLM02/LLM03) and `agentic` (OWASP Agentic Top
+  10 category name) fields.
+- **Network bindings ground truth (Linux)**: `network-bindings` now parses
+  `/proc/net/{tcp,tcp6}` for LISTEN sockets bound to all interfaces
+  (`0.0.0.0`/`::`) — pure read-only fs, no child processes. Windows/macOS
+  keep the env/config signal and note the platform limit in `limitations`.
+- **High-entropy redaction mode**: `security_redact_text` accepts
+  `modes: ['high_entropy']` to mask random secret-like tokens (length ≥ 24,
+  Shannon entropy ≥ 4.5 bits/char, ≥ 2 character classes). Off by default
+  to avoid over-redaction; UUIDs and hex hashes are deliberately not
+  masked. `security_audit`'s `config-secrets` gains a matching info-level
+  auxiliary signal for high-entropy values under non-secret key names
+  (never escalates to fail).
+- **Detection-quality eval**: `npm run eval` runs the adversarial sample
+  library through the scanner and reports precision/recall/F1/accuracy; a
+  pinned expectation that regresses fails the run. CI runs it after
+  `npm test`.
+- `security_scan_text` reason objects carry `via`; README.zh.md added;
+  architecture doc and the security-review SKILL updated.
+
+### Fixed
+
+- None in this release (features + hardening only).
+
+### Upgrade notes
+
+- Drop-in upgrade from 0.2.5; no API changes. New `profile` param and
+  `supplyChainLive`/`supplyChainTimeoutMs` config keys are optional.
+  `security_scan_text` may now report additional `via: normalized|base64`
+  hits for previously-missed obfuscated inputs (ruleset bumped to v4, so
+  cached verdicts invalidate).
+- Tested against `@deepseek-ai/dsh-tools` 0.1.0-rc.7.
+- Not yet published to npm / GitHub; built and installed locally for
+  verification.
+
+### Known issues
+
+- Unchanged: Windows ACL caveat, session-PII sampling bounds, type-limited
+  PII redaction (names/addresses still need NER), heuristic injection rules.
+- `deps-supply-chain` live lookup is opt-in and network-dependent; offline
+  mode is the default.
 ## [0.2.5] - 2026-08-28
 
 Fix release from an adversarial self-review: closes the `onTimeout` wiring gap and three structured-redaction leak paths. No new tools.
