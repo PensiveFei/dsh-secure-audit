@@ -10,8 +10,8 @@ may introduce breaking changes.
 
 Feature + hardening release: obfuscation-resistant injection detection, two
 new audit checks, audit profile tiers, OWASP mapping, a high-entropy
-redaction mode, and a detection-quality eval script. Built and installed
-locally for verification; not yet published.
+redaction mode, and a detection-quality eval script. Published on npm and
+GitHub (Release + tag) on 2026-08-29.
 
 ### Added
 
@@ -69,8 +69,7 @@ locally for verification; not yet published.
   hits for previously-missed obfuscated inputs (ruleset bumped to v4, so
   cached verdicts invalidate).
 - Tested against `@deepseek-ai/dsh-tools` 0.1.0-rc.7.
-- Not yet published to npm / GitHub; built and installed locally for
-  verification.
+- Published: npm latest = 0.2.6; GitHub Release v0.2.6 (non-draft, tarball attached).
 
 ### Known issues
 
