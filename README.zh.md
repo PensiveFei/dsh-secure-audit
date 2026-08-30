@@ -71,6 +71,7 @@ Get-FileHash dsh-secure-audit-<version>.tgz -Algorithm SHA256   # Windows
 
 | 版本 | 资产 | 大小 | SHA-256 |
 | --- | --- | --- | --- |
+| v0.2.7 | `dsh-secure-audit-0.2.7.tgz` | 73 881 B | `f344a541b634a59a2b73d8da3848d4e3d1c859215fc8193a6864635f1f742958` |
 | v0.2.6 | `dsh-secure-audit-0.2.6.tgz` | 67 994 B | `0a53743a7d6af952c759966ddbe92a5f2ba1b782949b669c54cf76bc1e513579` |
 | v0.2.5 | `dsh-secure-audit-0.2.5.tgz` | 53 070 B | `787db977d36cd895299eb486f54ce2a51be52160cea9226ca8dc2bba7ffcf95a` |
 | v0.2.4 | `dsh-secure-audit-0.2.4.tgz` | 50 332 B | `da7a3637a4cd176470be8e6148a919da8d3a523e081a8f983ec85172f521c3f4` |
