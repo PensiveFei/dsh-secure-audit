@@ -24,6 +24,13 @@ jobs:
       - run: npm test
       - name: Build tarball
         run: npm pack
+      - name: Record tarball SHA-256
+        run: |
+          echo "### Tarball SHA-256" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          sha256sum *.tgz >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sha256sum *.tgz
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:

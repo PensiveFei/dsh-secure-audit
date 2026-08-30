@@ -58,6 +58,30 @@ Git 安装说明：
   批准前请先审阅源码。固定 commit（`#<commit>`）可防止后续 push 静默改变安装内容。
 - 这是安全插件；维护者立场是“安装时执行代码本身就是攻击面”，因此刻意避免。
 
+## Release 资产与完整性
+
+每个 GitHub Release 都附带其工作流构建的精确 tarball（`npm pack`，见
+[release.yml](.github/workflows/release.yml)），不存在手工拼装。安装前请对照
+已公布的哈希校验你拿到的文件：
+
+```bash
+sha256sum dsh-secure-audit-<version>.tgz        # POSIX
+Get-FileHash dsh-secure-audit-<version>.tgz -Algorithm SHA256   # Windows
+```
+
+| 版本 | 资产 | 大小 | SHA-256 |
+| --- | --- | --- | --- |
+| v0.2.6 | `dsh-secure-audit-0.2.6.tgz` | 67 994 B | `0a53743a7d6af952c759966ddbe92a5f2ba1b782949b669c54cf76bc1e513579` |
+| v0.2.5 | `dsh-secure-audit-0.2.5.tgz` | 53 070 B | `787db977d36cd895299eb486f54ce2a51be52160cea9226ca8dc2bba7ffcf95a` |
+| v0.2.4 | `dsh-secure-audit-0.2.4.tgz` | 50 332 B | `da7a3637a4cd176470be8e6148a919da8d3a523e081a8f983ec85172f521c3f4` |
+| v0.2.3 | `dsh-secure-audit-0.2.3.tgz` | 49 715 B | `87ae207a6b603f04738644199732f22030f7540e6d1967f8a29d725bcadfb90a` |
+| v0.2.0 | `dsh-secure-audit-0.2.0.tgz` | 48 580 B | `ecc187574dd079fe2aa51c0841a6732e8bade1006a1ff172acbb2f6b2eb25342` |
+| v0.1.1 | `dsh-secure-audit-0.1.1.tgz` | 34 780 B | `6f1d935a6ab3e528e2daaa4adbceb839c1977c0ecada67ee83f2bf4e2c9eb20d` |
+| v0.1.0 | `dsh-secure-audit-0.1.0.tgz` | 33 473 B | `63180d0ad7f126f68cfa4bbbf0ae19ccfea416fb81fed9d902dc1eaaf3ac70d5` |
+
+哈希取自已发布的 GitHub Release 资产，随每个版本更新（见发布清单）。Git
+安装请固定 commit（`#<commit>`）而非分支，防止源码被静默更改。
+
 ## 用法
 
 ### 扫描文本注入
@@ -255,6 +279,14 @@ audit（报告形状、确定性、只读保证、证据脱敏、占位符跳过
 敏感字段自动脱敏）、redactJson（敏感键整值替换、PII 兜底、非法输入、深度守卫）、
 index（Cordis 契约、4 工具 + 1 技能注册、schema 校验）。
 
+验证文档：
+
+- [docs/verification-matrix.md](docs/verification-matrix.md)——把每项声明
+  （以及 #5077 社区评审的意见）映射到对应的测试文件或人工步骤，覆盖四个
+  阶段：安装、宿主激活、工具调用、可选 JSONL 写路径。
+- [docs/uninstall-rollback-checklist.md](docs/uninstall-rollback-checklist.md)
+  ——卸载/升级/回滚本插件的「先备份」人工流程，确保不扰动宿主 profile。
+
 ## 发布到 GitHub
 
 ```bash
@@ -265,6 +297,7 @@ gh repo edit --add-topic dsh-plugin
 发布清单：`npm run lint` + `npm test` + `npm run eval` 全绿 → 提交
 `package-lock.json` → 更新 `CHANGELOG.md`（新增/修复/升级提醒/已知问题四节）→
 `npm pack --dry-run` 确认产物 → tag + push（Release 工作流自动出 draft + tarball）→
+计算新 tarball 的 SHA-256（`sha256sum` / `Get-FileHash`）并把它加进上表 →
 `npm publish`。0.x 迭代含破坏性变更时标记 pre-release 并说明回滚方式；
 tag 不可变——回归以新 patch 版本发布，绝不编辑既有 tag。
 

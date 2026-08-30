@@ -419,7 +419,7 @@ test('host-capabilities reports injected host info and a fallback otherwise', as
     const withInfo = await runSecurityAudit({
       baseDir: root,
       scope: ['host'],
-      hostInfo: { dshToolsVersion: '0.1.0-rc.7', dshSessionVersion: '0.1.0-rc.7', skillsAvailable: true, ruleset: 4, pluginVersion: '0.2.6' },
+      hostInfo: { dshToolsVersion: '0.1.0-rc.7', dshSessionVersion: '0.1.0-rc.7', skillsAvailable: true, ruleset: 4, pluginVersion: '0.2.7' },
     });
     const hc = withInfo.checks.find((c) => c.id === 'host-capabilities');
     assert.equal(hc.status, 'info');

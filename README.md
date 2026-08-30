@@ -58,6 +58,31 @@ Notes for git installs:
 
 Dependency: `@deepseek-ai/dsh-tools` is a peer dependency supplied by the DSH runtime. `lib/` itself imports only Node builtins.
 
+## Release artifacts & integrity
+
+Every GitHub release attaches the exact tarball its workflow built (`npm pack`,
+see [release.yml](.github/workflows/release.yml)); nothing is assembled by hand.
+Verify the file you install against the published hash before trusting it:
+
+```bash
+sha256sum dsh-secure-audit-<version>.tgz        # POSIX
+Get-FileHash dsh-secure-audit-<version>.tgz -Algorithm SHA256   # Windows
+```
+
+| Release | Artifact | Size | SHA-256 |
+| --- | --- | --- | --- |
+| v0.2.6 | `dsh-secure-audit-0.2.6.tgz` | 67 994 B | `0a53743a7d6af952c759966ddbe92a5f2ba1b782949b669c54cf76bc1e513579` |
+| v0.2.5 | `dsh-secure-audit-0.2.5.tgz` | 53 070 B | `787db977d36cd895299eb486f54ce2a51be52160cea9226ca8dc2bba7ffcf95a` |
+| v0.2.4 | `dsh-secure-audit-0.2.4.tgz` | 50 332 B | `da7a3637a4cd176470be8e6148a919da8d3a523e081a8f983ec85172f521c3f4` |
+| v0.2.3 | `dsh-secure-audit-0.2.3.tgz` | 49 715 B | `87ae207a6b603f04738644199732f22030f7540e6d1967f8a29d725bcadfb90a` |
+| v0.2.0 | `dsh-secure-audit-0.2.0.tgz` | 48 580 B | `ecc187574dd079fe2aa51c0841a6732e8bade1006a1ff172acbb2f6b2eb25342` |
+| v0.1.1 | `dsh-secure-audit-0.1.1.tgz` | 34 780 B | `6f1d935a6ab3e528e2daaa4adbceb839c1977c0ecada67ee83f2bf4e2c9eb20d` |
+| v0.1.0 | `dsh-secure-audit-0.1.0.tgz` | 33 473 B | `63180d0ad7f126f68cfa4bbbf0ae19ccfea416fb81fed9d902dc1eaaf3ac70d5` |
+
+Hashes are computed from the published GitHub release assets and updated with
+each release (see the release checklist). Git installs should pin a commit
+(`#<commit>`) instead of a branch so the source cannot silently change.
+
 ## Usage
 
 ### Scan text for injection
@@ -316,6 +341,16 @@ Test coverage:
 - `redactJson` — sensitive-key replacement (nested objects/arrays, JSONPath labels, non-string values), PII fallback on other values and inside arrays, invalid-JSON and invalid-`keyModes` handling, custom key patterns, fail-safe depth guard.
 - `index` — smoke test that `apply()` exports the Cordis plugin contract and registers 4 tools + 1 skill against the real `@deepseek-ai/dsh-tools`, with load-time output-schema validation.
 
+Verification docs:
+
+- [docs/verification-matrix.md](docs/verification-matrix.md) — maps every
+  claim (and the community-review points from discussion #5077) to the test
+  file or manual step that proves it, across the four phases: install, host
+  activation, tool invocation, and the optional JSONL write path.
+- [docs/uninstall-rollback-checklist.md](docs/uninstall-rollback-checklist.md)
+  — the backup-first manual procedure for uninstall / upgrade / rollback of
+  this plugin without disturbing the host profile.
+
 Local `--patch` development: when the patch references this plugin by absolute path, bare imports (`@deepseek-ai/dsh-tools`) resolve from the plugin directory upward, so `node_modules/@deepseek-ai/dsh-tools` must exist there. Create a symlink (POSIX) or junction (Windows, `New-Item -ItemType Junction`) to a local `dsh-tools` checkout instead of installing from the registry if you want to test against unreleased changes.
 
 ## Publishing to GitHub
@@ -337,7 +372,7 @@ Release checklist for this repo:
 4. `npm pack --dry-run` to confirm `files` ships `index.js`, `lib/`, `skills/`, `examples/`, and the patch file.
 5. Tag and push (`git tag v0.1.0 && git push origin v0.1.0`). The release workflow runs tests, builds the tarball, and opens a draft release. For 0.x iterations, mark the release as pre-release when it contains breaking changes, and state whether rollback is possible.
 6. Tags are immutable: a regression ships as a new patch release, never as an edit to an existing tag.
-7. Attach the tarball (the workflow does this) so `dsh plugin add ./xxx.tgz` users get the exact artifact.
+7. Attach the tarball (the workflow does this) so `dsh plugin add ./xxx.tgz` users get the exact artifact. Compute the new tarball's SHA-256 (`sha256sum` / `Get-FileHash`) and add the row to the *Release artifacts & integrity* table above.
 8. Optionally `npm publish` (build-less: source is the artifact).
 
 ## FAQ

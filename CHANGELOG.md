@@ -6,6 +6,42 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.7] - 2026-08-30
+
+Documentation release: verifiable release integrity and an evidence chain for
+the "read-only" claim, following the community review on
+[discussion #5077](https://github.com/deepseek-ai/deepseek-harness/discussions/5077).
+No runtime code changes.
+
+### Added
+
+- **Release artifacts & integrity**: README (EN + ZH) now publishes the
+  SHA-256 of every released tarball (computed from the GitHub release assets,
+  with verification commands); the release checklist and `release.yml` record
+  the new tarball's hash at release time.
+- **docs/verification-matrix.md**: maps every claim — and each point of the
+  #5077 community review — to the automated test or manual step that proves
+  it, across the four phases: install, host activation, tool invocation, and
+  the optional JSONL write path.
+- **docs/uninstall-rollback-checklist.md**: backup-first manual procedure for
+  uninstall / upgrade / rollback without disturbing the host profile
+  (offline-tarball method; no `npm install` inside profile directories).
+
+### Fixed
+
+- None in this release (documentation only).
+
+### Upgrade notes
+
+- Drop-in upgrade from 0.2.6; zero API or behavior changes — documentation and
+  release metadata only.
+- Tested against `@deepseek-ai/dsh-tools` 0.1.0-rc.7.
+
+### Known issues
+
+- Unchanged: Windows ACL caveat, session-PII sampling bounds, type-limited
+  PII redaction, heuristic injection rules.
+
 ## [0.2.6] - 2026-08-29
 
 Feature + hardening release: obfuscation-resistant injection detection, two
