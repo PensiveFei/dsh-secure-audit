@@ -18,8 +18,8 @@ Also listed in [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesom
 
 ## Compatibility
 
-- Peer dependency: `@deepseek-ai/dsh-tools >= 0.1.0-rc.7`, provided by the DSH runtime.
-- Tested against `@deepseek-ai/dsh-tools` 0.1.0-rc.7. DSH itself is pre-1.0;
+- Peer dependency: `@deepseek-ai/dsh-tools >= 0.1.2-alpha.2`, provided by the DSH runtime.
+- Tested against `@deepseek-ai/dsh-tools` 0.1.2-alpha.2. DSH itself is pre-1.0;
   pin your DSH version and re-run `security_audit` after upgrading either
   side. Release notes state the DSH snapshot each version was tested against.
 - No install-time scripts and no build step; the shipped source is the artifact.
@@ -312,7 +312,7 @@ before relying on it.
 
 **Compatibility.**
 
-- Tested against `@deepseek-ai/dsh-tools` 0.1.0-rc.7 only. DSH is pre-1.0;
+- Tested against `@deepseek-ai/dsh-tools` 0.1.2-alpha.2 only. DSH is pre-1.0;
   verify against your pinned version. Live loading in a Cordis host was
   validated at the dsh-tools registration/execution contract level, not in a
   fully running host — install, run `security_audit`, and re-verify after

@@ -6,6 +6,38 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.8] - 2026-08-31
+
+Compatibility release for DeepSeek Harness **0.1.2-alpha**: widen the
+`@deepseek-ai/dsh-tools` peer range to the alpha line. No runtime code changes.
+
+### Changed
+
+- **Peer range `>=0.1.0-rc.7` → `>=0.1.2-alpha.2`**: under semver's prerelease
+  rule, `>=0.1.0-rc.7` matches only the `0.1.0-rc.x` line — it does NOT admit
+  `0.1.1-rc.x` or `0.1.2-alpha.x` (verified with node-semver against the
+  registry). On the new harness the plugin would either resolve an outdated
+  `dsh-tools` or trigger a peer-resolution conflict. The new range aligns with
+  what `dsh-base@0.1.2-alpha.2` ships.
+- **devDependency `@deepseek-ai/dsh-tools` 0.1.0-rc.7 → 0.1.2-alpha.2** so the
+  test baseline matches the declared peer range (avoids install-time
+  peer/dev version conflicts).
+
+### Fixed
+
+- None in this release.
+
+### Upgrade notes
+
+- Drop-in upgrade from 0.2.7; metadata-only change.
+- Requires a host providing `@deepseek-ai/dsh-tools >= 0.1.2-alpha.2`
+  (DeepSeek Harness 0.1.2-alpha or a later line with a matching tuple).
+
+### Known issues
+
+- Unchanged: Windows ACL caveat, session-PII sampling bounds, type-limited
+  PII redaction, heuristic injection rules.
+
 ## [0.2.7] - 2026-08-30
 
 Documentation release: verifiable release integrity and an evidence chain for
