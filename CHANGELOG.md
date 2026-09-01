@@ -6,6 +6,35 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.9] - 2026-09-01
+
+Install-hygiene release: this plugin no longer clones the DeepSeek Harness core
+package tree into the host it is installed into. No runtime code changes.
+
+### Fixed
+
+- **安装时不再拖入整棵 DSH 核心包树（重要）**：`@deepseek-ai/dsh-tools` 改为**可选 peer**（新增 `peerDependenciesMeta.optional`）。npm 7 起默认自动安装 peerDependencies，此前一次干净的 `npm install dsh-secure-audit` 会装进 **21 个包**——包含完整的并行 `@deepseek-ai` 核心树，**其中就有第二份 `@deepseek-ai/dsh-scope`**。装进一个已在运行自身核心的宿主里，两份 dsh-scope 意味着作用域符号对不上，harness 会拒绝组合上下文、新建会话失败。声明为可选后，npm 只校验、不安装。
+- **peer 范围同时覆盖 `0.1.0-rc` 与 `0.1.2-alpha` 两条线**：`>=0.1.2-alpha.2` → `>=0.1.0-rc.6 || >=0.1.2-alpha.0`。semver 的预发布规则是「含预发布号的范围只对同一个 `major.minor.patch` 元组放行预发布版本」，所以 0.2.8 修好 alpha 线的同时，把所有 `0.1.0-rc.x` 宿主（包括当前广泛使用的 `0.1.0-rc.7`）挡在了门外，这些用户会一直收到 unmet peer 告警。用 node-semver 对真实已发布版本实测确认：
+
+  | 范围 | 0.1.0-rc.7 | 0.1.2-alpha.4 |
+  | --- | --- | --- |
+  | `>=0.1.0-rc.7`（0.2.7 及更早） | ✅ | ❌ |
+  | `>=0.1.2-alpha.2`（0.2.8） | ❌ | ✅ |
+  | `>=0.1.0-rc.6 \|\| >=0.1.2-alpha.0`（本版） | ✅ | ✅ |
+
+### Added
+
+- `tests/manifest.test.js`：三条清单契约回归——peer 必须是可选、范围必须同时覆盖两条线、版本号必须在 CHANGELOG 里有对应小节。
+
+### Upgrade notes
+
+- 从 0.2.8 平滑升级，仅元数据变更，运行时行为不变。
+- 宿主仍需提供 `@deepseek-ai/dsh-tools`（DSH 自带）；本插件不再尝试替你安装它。
+
+### Known issues
+
+- 不变：Windows ACL 限制、会话 PII 抽样上限、PII 类型覆盖有限、注入规则为启发式。
+
 ## [0.2.8] - 2026-08-31
 
 Compatibility release for DeepSeek Harness **0.1.2-alpha**: widen the
