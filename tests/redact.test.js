@@ -10,6 +10,41 @@ test('redacts a CN mobile number keeping prefix and suffix', () => {
   assert.deepEqual(findings, [{ type: 'cn_mobile', label: PII_RULES.cn_mobile.label, count: 1, sample: '138****5678' }]);
 });
 
+test('ordinary keys are not masked (no substring false positives)', () => {
+  // "auth"/"token"/"secret" as bare substrings masked author, secretary,
+  // authentication, oauth_provider, tokenCount and maxTokens — destroying the
+  // values in a payload that is meant to be handed to a third-party model.
+  const input = JSON.stringify({
+    author: '张三', tokenCount: 42, secretary: '李四', authentication: 'passwordless',
+    oauth_provider: 'google', maxTokens: 8192, keyId: 'k-1',
+  });
+  const { redactedJson, replacedKeys } = redactJson(input);
+  assert.equal(redactedJson, input);
+  assert.deepEqual(replacedKeys, []);
+});
+
+test('secret-shaped keys are still masked after the segment fix', () => {
+  const { redactedJson } = redactJson(JSON.stringify({
+    api_key: 'sk-1', apiKey: 'sk-2', access_token: 't', clientSecret: 's', password: 'p',
+    pwd: 'p2', secret: 's2', authorization: 'Bearer x', credentials: { user: 'u' }, tokens: ['t'],
+    signing_key: 's3', refreshToken: 'r',
+  }));
+  const parsed = JSON.parse(redactedJson);
+  for (const key of ['api_key', 'apiKey', 'access_token', 'clientSecret', 'password', 'pwd', 'secret', 'authorization', 'credentials', 'tokens', 'signing_key', 'refreshToken']) {
+    assert.equal(parsed[key], '[REDACTED]', key + ' must stay masked');
+  }
+});
+
+test('a __proto__ key survives structured redaction', () => {
+  // Assigning out['__proto__'] on a plain object literal hit the prototype
+  // setter, so the key vanished and the documented "structure is preserved"
+  // contract was violated.
+  const input = '{"ok":1,"__proto__":{"polluted":true},"nested":{"__proto__":"x"}}';
+  const { redactedJson } = redactJson(input);
+  assert.deepEqual(Object.keys(JSON.parse(redactedJson)).sort(), ['__proto__', 'nested', 'ok']);
+  assert.equal(Object.getPrototypeOf(JSON.parse(redactedJson)), Object.prototype, 'no prototype pollution');
+});
+
 test('redacts a CN mobile with +86 prefix and dash', () => {
   const { redacted, findings } = redactText('+86-13912345678');
   assert.equal(redacted, '+86-139****5678');

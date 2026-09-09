@@ -4,6 +4,12 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync, statSync, rea
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import zlib from 'node:zlib';
+
+// Named imports of zstd* would fail to link on Node 20 (the export does not
+// exist there), so read them off the namespace and let the test skip instead.
+const { gzipSync } = zlib;
+const zstdCompressSync = typeof zlib.zstdCompressSync === 'function' ? zlib.zstdCompressSync : null;
 import { runSecurityAudit, CHECK_SCOPES, PLUGIN_VERSION } from '../lib/audit.js';
 
 function makeFixture() {
@@ -292,7 +298,143 @@ test('reportSha256 recomputes from the deterministic body (drop generatedAt)', a
   }
 });
 
-test('chmod world-writable file triggers config-permissions warn', async (t) => {
+// ---------------------------------------------------------------------------
+// 0.2.10: DSH 0.1.2 session layout (per-session directories + compressed
+// payloads) — the pre-0.2.10 check read only the flat top level and reported
+// a PASSING PII scan on an install full of session logs.
+// ---------------------------------------------------------------------------
+
+/** Write sessions/<workspace>/<session-id>/session.jsonl[.ext] fixtures. */
+function writeNestedSession(root, workspace, id, payload, ext = '') {
+  const dir = join(root, 'sessions', workspace, id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `session.jsonl${ext}`), payload);
+  return dir;
+}
+
+test('sessions: nested gzip payloads are decompressed and inspected', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-nested-'));
+  try {
+    const payload = '{"role":"user","content":"我的手机号是 13912345678"}\n';
+    writeNestedSession(root, '--D-APP--', '11111111-1111-1111-1111-111111111111', gzipSync(Buffer.from(payload)), '.gz');
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+    const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+    assert.equal(session.status, 'warn', 'a nested compressed payload must still be scanned');
+    assert.match(session.message, /1 sampled session file/);
+    assert.ok(!session.evidence.includes('13912345678'), 'evidence must never carry the raw value');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('sessions: nested zstd payloads are decompressed and inspected', async (t) => {
+  if (typeof zstdCompressSync !== 'function') {
+    t.skip('zstd is unavailable on this Node version');
+    return;
+  }
+  const root = mkdtempSync(join(tmpdir(), 'dsa-zstd-'));
+  try {
+    const payload = '{"role":"user","content":"邮箱 zhangsan@example.com"}\n';
+    writeNestedSession(root, '--D-APP--', '22222222-2222-2222-2222-222222222222', zstdCompressSync(Buffer.from(payload)), '.zstd');
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+    const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+    assert.equal(session.status, 'warn', 'the DSH 0.1.2 session layout must be scanned, not skipped');
+    assert.match(session.message, /1 sampled session file/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('sessions: unreadable payloads are reported as info, never as a passing scan', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-binary-'));
+  try {
+    writeNestedSession(root, '--D-APP--', '33333333-3333-3333-3333-333333333333', Buffer.from([0, 1, 2, 0, 255]));
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+    const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+    assert.equal(session.status, 'info');
+    assert.match(session.message, /could not be inspected/);
+    assert.match(session.message, /PII scan not performed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('sessions-structure counts payload files, not workspace directories', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-struct-'));
+  try {
+    writeNestedSession(root, '--D-APP--', '44444444-4444-4444-4444-444444444444', '{"a":1}\n');
+    writeNestedSession(root, '--D-APP--', '55555555-5555-5555-5555-555555555555', '{"a":2}\n');
+    writeNestedSession(root, '--C-other--', '66666666-6666-6666-6666-666666666666', '{"a":3}\n');
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+    const structure = report.checks.find((c) => c.id === 'sessions-structure');
+    assert.match(structure.message, /found 3 session payload file\(s\) across 2 workspace\(s\)/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('config-secrets: env-var references are not secrets', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-envref-'));
+  try {
+    writeFileSync(join(root, 'settings.yaml'), [
+      'providers:',
+      '  - id: moonshot',
+      '    apiKeyEnv: DEEPSEEK_API_KEY',
+      '    apiKeyFile: /etc/dsh/key',
+      '    maxTokens: 8192',
+      '    tokenCount: 0',
+      '',
+    ].join('\n'));
+    const report = await runSecurityAudit({ baseDir: root, scope: ['config'] });
+    const secrets = report.checks.find((c) => c.id === 'config-secrets');
+    assert.notEqual(secrets.status, 'fail', 'a reference to an env var is not a stored secret');
+    assert.equal(secrets.status, 'pass');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('config-secrets: the DSH credential store warns with accurate remediation', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-store-'));
+  try {
+    writeFileSync(join(root, '.credentials.yaml'), 'DEEPSEEK_API_KEY: sk-TEST-STORE1111AAAA2222BBBB\n');
+    const report = await runSecurityAudit({ baseDir: root, scope: ['config'] });
+    const secrets = report.checks.find((c) => c.id === 'config-secrets');
+    assert.equal(secrets.status, 'warn', 'the sanctioned store must not be a hard fail');
+    assert.match(secrets.message, /credential store/);
+    assert.match(secrets.remediation, /sanctioned location/);
+    assert.ok(!secrets.evidence.includes('sk-TEST-STORE1111AAAA2222BBBB'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('config-secrets: a real secret in another config file still fails', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-real-'));
+  try {
+    writeFileSync(join(root, 'settings.yaml'), 'apiKey: sk-TEST-REAL1111AAAA2222BBBB3333\n');
+    writeFileSync(join(root, '.credentials.yaml'), 'OTHER_API_KEY: sk-TEST-STORE1111AAAA2222BBBB\n');
+    const report = await runSecurityAudit({ baseDir: root, scope: ['config'] });
+    const secrets = report.checks.find((c) => c.id === 'config-secrets');
+    assert.equal(secrets.status, 'fail');
+    assert.match(secrets.evidence, /settings\.yaml/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('sampleLimit is clamped so a huge value cannot read the whole tree', async () => {
+  const root = makeFixture();
+  try {
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'], sampleLimit: 1e9 });
+    const limit = report.limitations.find((l) => /sampling covers up to/.test(l));
+    assert.match(limit, /500/);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('chmod world-writable file triggers config-permissions warn (POSIX)', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'dsa-audit-mode-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(join(root, 'cordis.yml'), 'plugins: []\n');
@@ -303,7 +445,14 @@ test('chmod world-writable file triggers config-permissions warn', async (t) => 
   }
   const report = await runSecurityAudit({ baseDir: root, scope: ['config'] });
   const perm = report.checks.find((c) => c.id === 'config-permissions');
-  assert.equal(perm.status, 'warn');
+  if (process.platform === 'win32') {
+    // Windows mode bits are synthetic, so the check must REPORT rather than
+    // assert: every path would otherwise look group/other-writable.
+    assert.equal(perm.status, 'info');
+    assert.match(perm.message, /ACLs are not inspected/);
+  } else {
+    assert.equal(perm.status, 'warn');
+  }
 });
 // ---------------------------------------------------------------------------
 // 0.2.6 additions: OWASP mapping, profile tiers, supply chain, host caps, /proc

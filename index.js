@@ -559,7 +559,11 @@ export function apply(ctx, config = {}) {
     const markdown = loadSkillMarkdown();
     if (markdown) {
       const skill = parseSkill(markdown);
-      skills.register({ name: skill.name, description: skill.description, content: skill.content, source: skill.content });
+      // `source` is the ORIGIN bucket of a skill contribution ('runtime' |
+      // 'bundled' | ...), prompt-visible metadata returned by ctx.skills.list().
+      // Passing the markdown body here shipped the whole skill text in every
+      // skills/list payload.
+      skills.register({ name: skill.name, description: skill.description, content: skill.content, source: 'runtime' });
       ctx.logger.info('[secure-audit] runtime skill "%s" registered', skill.name);
     } else {
       ctx.logger.warn('[secure-audit] skill markdown not found; skill registration skipped');

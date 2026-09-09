@@ -71,6 +71,7 @@ Get-FileHash dsh-secure-audit-<version>.tgz -Algorithm SHA256   # Windows
 
 | Release | Artifact | Size | SHA-256 |
 | --- | --- | --- | --- |
+| v0.2.9 | `dsh-secure-audit-0.2.9.tgz` | 75 882 B | `86669f8a98b21147ff3ce6203e4b803cb1b6df0afc4a1ef22ec137b69ba80536` |
 | v0.2.8 | `dsh-secure-audit-0.2.8.tgz` | 74 338 B | `d6ec92af2365175c474840faf1e26a17cc3039acce7b4780469ddc60264ae06d` |
 | v0.2.7 | `dsh-secure-audit-0.2.7.tgz` | 73 881 B | `f344a541b634a59a2b73d8da3848d4e3d1c859215fc8193a6864635f1f742958` |
 | v0.2.6 | `dsh-secure-audit-0.2.6.tgz` | 67 994 B | `0a53743a7d6af952c759966ddbe92a5f2ba1b782949b669c54cf76bc1e513579` |
@@ -201,10 +202,10 @@ Eleven checks across seven scopes:
 
 | Check | Scope | Finds |
 | --- | --- | --- |
-| `config-secrets` | config | secret-like keys (+ info-level high-entropy auxiliary signal) |
-| `config-permissions` | config | group/other-writable config files |
-| `sessions-structure` | sessions | session directory inventory |
-| `sessions-sensitive-content` | sessions | redactable PII in a sample of session files |
+| `config-secrets` | config | secrets stored in **non-credential** config files (env-var references and pointer keys are not findings); the DSH credential store is reported separately as `warn` (+ info-level high-entropy auxiliary signal) |
+| `config-permissions` | config | group/other-writable config files (POSIX only; reports `info` on Windows, where mode bits are synthetic) |
+| `sessions-structure` | sessions | session payload inventory (`sessions/<workspace>/<session-id>/`), with workspace count |
+| `sessions-sensitive-content` | sessions | redactable PII in a sample of session payloads — zstd/gzip payloads are decompressed; unreadable ones are reported as `info`, never as a passing scan |
 | `plugins-inventory` | plugins | local plugin packages |
 | `plugins-patch-sources` | plugins | `cordis.yml` lines referencing remote sources |
 | `deps-supply-chain` | plugins | plugin version inventory (offline) / registry advisories (opt-in live) |

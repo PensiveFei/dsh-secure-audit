@@ -37,10 +37,21 @@ test('manifest: the DSH peer is optional, so installing never clones the core tr
  * use, so the range has to name both or one group of users gets a permanent
  * unmet-peer warning. (0.2.8 fixed one direction and broke the other.)
  */
-test('manifest: the peer range covers both the 0.1.0-rc and 0.1.2-alpha lines', () => {
+test('manifest: the peer range covers every shipped prerelease line', () => {
   const range = pkg.peerDependencies['@deepseek-ai/dsh-tools'];
-  assert.ok(/0\.1\.0-rc/.test(range), 'range must admit the 0.1.0-rc line: ' + range);
-  assert.ok(/0\.1\.2-alpha/.test(range), 'range must admit the 0.1.2-alpha line: ' + range);
+  // 0.1.1-rc.x, 0.1.3-alpha.x and 0.1.5-alpha.x hosts are all in the wild;
+  // each tuple must be named explicitly or those users get a permanent
+  // unmet-peer warning.
+  for (const line of ['0\.1\.0-rc', '0\.1\.1-rc', '0\.1\.2-alpha', '0\.1\.3-alpha', '0\.1\.5-alpha']) {
+    assert.ok(new RegExp(line).test(range), 'range must admit the ' + line.replace(/\\/g, '') + ' line: ' + range);
+  }
+});
+
+test('manifest: the test dependency tracks the current host line', () => {
+  // Pinned to 0.1.2-alpha.2 the smoke test validated an outdated dsh-tools
+  // contract while users ran the 0.1.2-rc line.
+  const dev = pkg.devDependencies['@deepseek-ai/dsh-tools'];
+  assert.ok(!/alpha/.test(dev), 'dev dependency must not pin a superseded alpha line: ' + dev);
 });
 
 test('manifest: version and changelog agree', () => {
