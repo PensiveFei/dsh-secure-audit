@@ -11,7 +11,7 @@
 [![MIT license](https://img.shields.io/github/license/PensiveFei/dsh-secure-audit)](https://github.com/PensiveFei/dsh-secure-audit/blob/main/LICENSE)
 [![release](https://img.shields.io/github/v/release/PensiveFei/dsh-secure-audit)](https://github.com/PensiveFei/dsh-secure-audit/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/PensiveFei/dsh-secure-audit/ci.yml)](https://github.com/PensiveFei/dsh-secure-audit/actions/workflows/ci.yml)
-[![npm downloads](https://img.shields.io/npm/dw/dsh-secure-audit)](https://www.npmjs.com/package/dsh-secure-audit)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-secure-audit)](https://www.npmjs.com/package/dsh-secure-audit)
 
 已收录于 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) · [Awesome DeepSeek Harness](https://github.com/Dominic789654/awesome-deepseek-harness)
 
