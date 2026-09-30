@@ -251,7 +251,7 @@ test('session PII sampling respects the sampleLimit option', async () => {
     const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'], sampleLimit: 1 });
     const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
     assert.equal(session.status, 'warn');
-    assert.match(session.message, /1 sampled session file/);
+    assert.match(session.message, /\(1\/2 payload\(s\) across 0 workspace\(s\)/);
     const limit = report.limitations.find((l) => /sampling covers up to/.test(l));
     assert.ok(limit.includes('1'));
   } finally {
@@ -320,7 +320,7 @@ test('sessions: nested gzip payloads are decompressed and inspected', async () =
     const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
     const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
     assert.equal(session.status, 'warn', 'a nested compressed payload must still be scanned');
-    assert.match(session.message, /1 sampled session file/);
+    assert.match(session.message, /\(1\/1 payload\(s\) across 1 workspace\(s\)/);
     assert.ok(!session.evidence.includes('13912345678'), 'evidence must never carry the raw value');
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -339,7 +339,7 @@ test('sessions: nested zstd payloads are decompressed and inspected', async (t) 
     const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
     const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
     assert.equal(session.status, 'warn', 'the DSH 0.1.2 session layout must be scanned, not skipped');
-    assert.match(session.message, /1 sampled session file/);
+    assert.match(session.message, /\(1\/1 payload\(s\) across 1 workspace\(s\)/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -499,10 +499,10 @@ test('quick profile caps session sampling and reports the bound', async () => {
     }
     const quick = await runSecurityAudit({ baseDir: root, scope: ['sessions'], profile: 'quick' });
     const session = quick.checks.find((c) => c.id === 'sessions-sensitive-content');
-    assert.match(session.message, /3 sampled session file/);
+    assert.match(session.message, /\(3\/5 payload\(s\)/);
     const full = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
     const sessionFull = full.checks.find((c) => c.id === 'sessions-sensitive-content');
-    assert.match(sessionFull.message, /5 sampled session file/);
+    assert.match(sessionFull.message, /\(5\/5 payload\(s\)/);
   } finally {
     cleanup(root);
   }
@@ -630,5 +630,124 @@ test('config-secrets reports high-entropy values as info, never fail', async () 
     assert.equal(failReport.checks.find((c) => c.id === 'config-secrets').status, 'fail');
   } finally {
     cleanup(root);
+  }
+});
+// ---------------------------------------------------------------------------
+// 0.2.11: coverage defects found on a real install — concatenated-frame zstd
+// containers, workspace-biased sampling, and a depth-first config walk.
+// ---------------------------------------------------------------------------
+
+/** Build the DSH container shape: a header frame plus one frame per batch. */
+function frameContainer(frames) {
+  return Buffer.concat(frames.map((frame) => zstdCompressSync(Buffer.from(frame))));
+}
+
+test('sessions: every frame of a concatenated zstd container is decoded', async (t) => {
+  if (typeof zstdCompressSync !== 'function') {
+    t.skip('zstd is unavailable on this Node version');
+    return;
+  }
+  const root = mkdtempSync(join(tmpdir(), 'dsa-frames-'));
+  try {
+    // DSH writes sessions/<workspace>/<session-id>/session.jsonl.zstd as a
+    // header frame followed by one frame per durable event batch. Node's
+    // one-shot zstd API stops after the first frame, so decoding the whole
+    // buffer returned the 241-byte header and nothing else.
+    const header = '{"type":"session","version":0,"cwd":"D:\\APP"}\n';
+    const batch = '{"role":"user","content":"我的手机号是 13912345678"}\n';
+    const container = frameContainer([header, batch]);
+    writeNestedSession(root, '--D-APP--', '44444444-4444-4444-4444-444444444444', container, '.zstd');
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+    const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+    assert.equal(session.status, 'warn', 'content in a later frame must be scanned, not just the header frame');
+    assert.match(session.message, /cn_mobile/);
+    assert.ok(!session.evidence.includes('13912345678'), 'evidence must never carry the raw value');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('sessions: a header-only frame yields no false pass', async (t) => {
+  if (typeof zstdCompressSync !== 'function') {
+    t.skip('zstd is unavailable on this Node version');
+    return;
+  }
+  const root = mkdtempSync(join(tmpdir(), 'dsa-headeronly-'));
+  try {
+    const header = '{"type":"session","version":0}\n';
+    writeNestedSession(root, '--W--', '55555555-5555-5555-5555-555555555555', frameContainer([header]), '.zstd');
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+    const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+    // The container decoded in full and holds no PII: that IS a clean pass.
+    assert.equal(session.status, 'pass');
+    assert.match(session.message, /decoded in full/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('sessions: a payload larger than the plaintext cap is scanned, not skipped', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-bigpayload-'));
+  try {
+    const filler = 'x'.repeat(5 * 1024 * 1024);
+    mkdirSync(join(root, 'sessions'), { recursive: true });
+    writeFileSync(join(root, 'sessions', 'big.jsonl'), `{"content":"手机 13912345678 ${filler}"}\n`);
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+    const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+    assert.equal(session.status, 'warn', 'an over-cap payload must still be scanned up to the cap');
+    assert.match(session.message, /truncated at 4 MB/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('sessions: an over-cap payload with no PII reports partial coverage, never pass', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-partial-'));
+  try {
+    const filler = 'y'.repeat(5 * 1024 * 1024);
+    mkdirSync(join(root, 'sessions'), { recursive: true });
+    writeFileSync(join(root, 'sessions', 'clean.jsonl'), `{"content":"${filler}"}\n`);
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+    const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+    assert.equal(session.status, 'info');
+    assert.match(session.message, /partial scan, not a clean result/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('sessions: sampling spreads across workspaces instead of one subtree', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-strata-'));
+  try {
+    for (let i = 0; i < 12; i += 1) {
+      writeNestedSession(root, '--A--', `a-${String(i).padStart(2, '0')}`, '{"content":"ok"}\n');
+    }
+    writeNestedSession(root, '--B--', 'b-00', '{"content":"手机 13912345678"}\n');
+    const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'], sampleLimit: 2 });
+    const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+    assert.match(session.message, /2\/13 payload\(s\) across 2 workspace\(s\)/);
+    assert.equal(session.status, 'warn', 'the PII-only workspace must not be crowded out of the sample');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('config walk reaches shallow config before deep log volume', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-walk-'));
+  try {
+    // A deep, wide log tree that used to swallow the whole file budget.
+    for (let i = 0; i < 400; i += 1) {
+      mkdirSync(join(root, 'storages', `s-${String(i).padStart(3, '0')}`), { recursive: true });
+      writeFileSync(join(root, 'storages', `s-${String(i).padStart(3, '0')}`, 'log.txt'), 'noise\n');
+    }
+    mkdirSync(join(root, 'profiles', 'web'), { recursive: true });
+    writeFileSync(join(root, 'profiles', 'web', 'cordis.patch.yml'), 'api_key: sk-TEST-abcdefghijklmnopqrstuvwxyz123456\n');
+    writeFileSync(join(root, 'settings.yaml'), 'theme: dark\n');
+    const report = await runSecurityAudit({ baseDir: root, scope: ['config'], profile: 'quick' });
+    const secrets = report.checks.find((c) => c.id === 'config-secrets');
+    assert.equal(secrets.status, 'fail', 'the secret under profiles/ must be reached by the walk');
+    assert.ok(report.limitations.some((l) => /file budget/.test(l)), 'a capped walk must be disclosed');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
