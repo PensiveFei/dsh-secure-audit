@@ -1,0 +1,149 @@
+name: Publish to npm
+
+# 通过 npm Trusted Publishing（OIDC）发布，全程不需要任何长期 token，也不需要 OTP。
+#
+# 触发方式
+#   1) GitHub Release 被发布（tag 形如 vX.Y.Z，需与 package.json 的 version 一致）
+#   2) 手动：gh workflow run publish.yml --ref main -f publish_ref=refs/tags/vX.Y.Z
+#      历史 tag 里不含本文件时必须走这种方式：workflow 定义从 main 取，包内容从 tag 取。
+#
+# 首次使用前要在 npmjs.com 配一次 Trusted Publisher（只能人工操作）：
+#   https://www.npmjs.com/package/dsh-secure-audit/access
+#     Provider:              GitHub Actions
+#     Organization or user:  PensiveFei
+#     Repository:            dsh-secure-audit
+#     Workflow filename:     publish.yml      <- 必须与本文件名逐字一致
+#     Environment:           留空
+#
+# 排查
+#   - 403 npm-trusted-publisher-not-configured -> npm 端的仓库名 / workflow 文件名对不上
+#   - OIDC token not found                     -> 少了 id-token: write
+#   - npm 版本低于 11.5.1                       -> Trusted Publishing 不可用
+#
+# ⚠️ 「绿了」不等于发出去了：npm publish 成功后 registry 要一两分钟才对外可见，第一时间
+#   `npm view` 会得到 E404、看着像失败 —— 判据要落在日志里的
+#   `+ dsh-secure-audit@X.Y.Z` 与 `Signed provenance statement`。
+#   反过来，`--dry-run` 全绿也不能当发布成功的证据：npm 的 OIDC 换票失败会被 CLI
+#   静默吞掉，真正的校验发生在写 registry 的那一刻（未配 Trusted Publisher 时报 404）。
+#
+# ⚠️ `release` 事件的投递不稳（2026-09-24 在姊妹仓库实测：给历史 tag 补建 Release 时它
+#   **没有触发**，而同日另一个 Release 又正常触发）。补发历史 tag 请优先用上面的手动 dispatch。
+#
+# 安全说明：本文件不引用任何 secret。若将来要加 secret，先想清楚谁有权改这个 workflow
+# —— 能改它的人就能让 CI 拿到仓库里的全部 secrets。
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish_ref:
+        description: '要发布的 tag ref（必填，例如 refs/tags/v0.2.11）。留空 = 用本次运行的 ref，而分支 ref 会被拒绝'
+        required: false
+        default: ''
+      dry_run:
+        description: '只演练不发布（true = npm publish --dry-run）'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: gate and publish (Trusted Publishing)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.publish_ref || github.ref }}
+
+      # registry-url 是必需的：让 npm publish 解析到公共 registry，也让 npm 的 OIDC
+      # 客户端知道去哪个 registry 换发布用的短期凭据。这里不设 NODE_AUTH_TOKEN。
+      - name: Set up Node (npm >= 11.5.1 required for Trusted Publishing)
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Check toolchain
+        run: |
+          node --version
+          NPMV=$(npm --version)
+          echo "npm $NPMV"
+          MAJOR=${NPMV%%.*}
+          MINOR=${NPMV#*.}
+          MINOR=${MINOR%%.*}
+          if [ "$MAJOR" -lt 11 ] || { [ "$MAJOR" -eq 11 ] && [ "$MINOR" -lt 5 ]; }; then
+            echo "::error::npm $NPMV is below 11.5.1 -- Trusted Publishing needs 11.5.1+"
+            exit 1
+          fi
+
+      - name: Guard package.json version against the ref
+        env:
+          PUBLISH_REF: ${{ inputs.publish_ref }}
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          case "$PUBLISH_REF" in
+            refs/tags/*) REF="${PUBLISH_REF#refs/tags/}" ;;
+            "")          REF="${GITHUB_REF_NAME}" ;;
+            *)           REF="${PUBLISH_REF##*/}" ;;
+          esac
+          echo "package.json=$PKG  ref=$REF"
+          case "$REF" in
+            v*)
+              TAG="${REF#v}"
+              if [ "$PKG" != "$TAG" ]; then
+                echo "::error::package.json version ($PKG) does not match tag ($REF)"
+                exit 1
+              fi
+              echo "OK: version and tag agree"
+              ;;
+            *)
+              # A branch ref publishes whatever that branch happens to contain
+              # under its own package.json version — main is normally AHEAD of
+              # the last tag, so those bytes would match no tag at all.
+              echo "::error::refusing to publish from a non-tag ref ($REF) -- pass publish_ref=refs/tags/vX.Y.Z"
+              exit 1
+              ;;
+          esac
+
+      # release 事件与手动 dispatch 会对同一个版本各跑一次。已发布不是错误，只是无事可做。
+      # 跳过发布步骤并留一条 warning —— 既幂等，也不会把「发过了」伪装成绿。
+      - name: Check whether this version is already on npm
+        id: published
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VER" version >/dev/null 2>&1; then
+            echo "state=already" >> "$GITHUB_OUTPUT"
+            echo "::warning::$NAME@$VER is already on npm -- skipping the publish steps (nothing to do)"
+          else
+            echo "state=new" >> "$GITHUB_OUTPUT"
+            echo "OK: $NAME@$VER is not on npm yet"
+          fi
+
+      - name: Release gate (tests, lint, eval)
+        if: steps.published.outputs.state == 'new'
+        run: |
+          npm ci
+          npm test
+          npm run lint
+          npm run eval
+
+      # 不带 token、不带 --provenance：Trusted Publishing 会自动生成 provenance。
+      - name: Publish to npm (OIDC, no token)
+        if: steps.published.outputs.state == 'new'
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "dry-run: 只演练，不上传"
+            npm publish --access public --dry-run
+          else
+            npm publish --access public
+          fi
