@@ -6,6 +6,24 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.11] - 2026-09-30
+
+Correctness and robustness release. The 0.2.10 session scan could still report a
+clean result it had not earned, and its walk could present a `config` scope it
+had never reached; finishing those fixes surfaced a quadratic PII regex that
+made any large payload (and any multi-hundred-KB `security_redact_text` call)
+effectively unscannable.
+
+### Fixed
+
+- **会话扫描只解「第一帧」= 又一个假通过**：DSH 0.1.2 的 `session.jsonl.zstd` 是**多帧串联容器**（一个 header 帧 + 每个事件批次一帧），而 Node 的 `zstdDecompressSync` / 解压流**都只解第一帧** → 实际只读到约 241 字节的会话头，正文一个字节都没扫，检查却给 `pass`。新增 `lib/zstd.js`（纯 JS、零依赖、无 child_process）按容器结构逐帧解码，整份载荷真正进入 PII 扫描。
+- **超限载荷被整份跳过**：旧行为是「超过单文件上限就跳过」，报 `info` 等于没查。现在**扫到上限**并把覆盖不全如实写进结果（`truncated at 4 MB` / `partial scan, not a clean result`），绝不报 pass。新增四个预算：单文件读入上限 64 MB、单载荷明文上限 4 MB、整份采样明文预算 16 MB、清单枚举上限 2000 条。
+- **`config` 范围「走不到」却报干净**：`collectFiles` 原为 DFS 栈，先弹字母序最后的目录，在真实 `$DSH_HOME` 上 50 个文件的 quick 预算被 `storages/`、`sessions/` 吃光，**放配置的 `profiles/` 根本没被遍历**。改为 BFS 逐层（第 d 层全部走完才进 d+1 层），返回值从数组改为 `{files, capped}`，预算用尽会在 `limitations` 里披露，不再暗示全覆盖。
+- **会话抽样挤在同一个工作区**：DFS + 按样本数提前停止会让双工作区安装的样本**全部来自同一个子树**。现在全部枚举后按工作区分层抽样。
+- **目录被当成会话文件计数**：`sessions-structure` 现在只统计 payload 文件，不再把工作区目录算进去（0.2.10 之前遗留）。
+- **email 规则二次回溯（本轮新发现）**：`[A-Za-z0-9._%+-]+@…` 在**没有 `@` 的长文本**上，每个起点都要走到输入末尾才失败 → O(n²)：实测 64 KB ≈ 1.9 s、256 KB ≈ 31 s，1 MB 需约两小时。这正是上面两条 4 MB 载荷回归此前永远跑不完的原因。给 local part / label 加上 RFC 5321/1035 上限（≤64 / ≤63）后 1 MB ≈ 170 ms。**行为边界（有意为之）**：`a@.example.com`、`a@example..com`、local part >64 字符不再被识别为邮箱；真实地址（含多级域名、URL userinfo）行为不变。
+- 测试 149 项（新增回归：多帧解码、header-only 不假通过、超限载荷要扫而非跳过、超限无 PII 只能报部分扫描、抽样跨工作区、配置遍历先够到浅层、email 线性 + RFC 边界），`npm run lint` 与 `npm run eval` 全绿。
+
 ## [0.2.10] - 2026-09-09
 
 Correctness release: a read-only review against **DSH 0.1.2-rc.1** found one
