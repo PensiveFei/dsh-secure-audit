@@ -165,6 +165,11 @@ bit/字符、至少 2 种字符类别）。该模式**默认关闭**（`modes: [
 }
 ```
 
+会话载荷上限（0.2.11 起）：清单会枚举全部载荷以给出真实总数（列表上限 2000 条，遍历被截断时写入
+`limitations`），单文件最多读 64 MB，单个载荷最多扫解码后明文的前 4 MB，整份采样的明文预算 16 MB。
+触及明文上限的载荷一律报 **partial scan（部分扫描）**，绝不报干净通过。串联的 `session.jsonl.zstd`
+容器逐帧解码，不再只解第一帧。
+
 返回 `checks[]` + `summary`（pass/warn/fail/error/info）+ 产生该报告的 `profile`，
 以及每条检查的 `owasp`（OWASP LLM Top 10 2025）/`agentic`（OWASP Agentic Top 10）
 映射。证据已脱敏并做路径归一（`<base>` 代替审计根、`<workspace>` 代替工作区）。
@@ -178,7 +183,7 @@ bit/字符、至少 2 种字符类别）。该模式**默认关闭**（`modes: [
 | `config-secrets` | config | 密钥类键（+ info 级高熵辅助信号） |
 | `config-permissions` | config | 组/其他可写配置文件 |
 | `sessions-structure` | sessions | 会话目录清单 |
-| `sessions-sensitive-content` | sessions | 会话文件采样中的可脱敏 PII |
+| `sessions-sensitive-content` | sessions | 会话文件采样中的可脱敏 PII——串联 zstd 容器逐帧解码；超明文上限的载荷扫到上限并报「部分扫描」；读不了的一律报 `info`，绝不报通过 |
 | `plugins-inventory` | plugins | 本地插件包 |
 | `plugins-patch-sources` | plugins | 引用远程源的 `cordis.yml` 行 |
 | `deps-supply-chain` | plugins | 插件版本清单（离线）/ registry 公告（可选在线） |

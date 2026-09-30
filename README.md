@@ -190,6 +190,14 @@ Since 0.2.5 the key channel replaces the whole value regardless of its type (num
 }
 ```
 
+Session payload limits (since 0.2.11): the inventory enumerates every payload so
+the total is honest (listing capped at 2000 entries, and a capped walk is
+disclosed in `limitations`), reads at most 64 MB per file, scans at most the
+first 4 MB of decoded plaintext per payload, and holds the entire sample to a
+16 MB plaintext budget. A payload that hits either plaintext limit is reported
+as a **partial scan** — never as a clean pass. Every frame of a concatenated
+`session.jsonl.zstd` container is decoded, not just the first one.
+
 Returns `checks[]` plus a `summary` of `pass`/`warn`/`fail`/`error`/`info`, the
 `profile` that produced it, and per-check `owasp` (OWASP Top 10 for LLM
 Applications 2025) / `agentic` (OWASP Agentic Top 10) mappings. Evidence is
@@ -206,7 +214,7 @@ Eleven checks across seven scopes:
 | `config-secrets` | config | secrets stored in **non-credential** config files (env-var references and pointer keys are not findings); the DSH credential store is reported separately as `warn` (+ info-level high-entropy auxiliary signal) |
 | `config-permissions` | config | group/other-writable config files (POSIX only; reports `info` on Windows, where mode bits are synthetic) |
 | `sessions-structure` | sessions | session payload inventory (`sessions/<workspace>/<session-id>/`), with workspace count |
-| `sessions-sensitive-content` | sessions | redactable PII in a sample of session payloads — zstd/gzip payloads are decompressed; unreadable ones are reported as `info`, never as a passing scan |
+| `sessions-sensitive-content` | sessions | redactable PII in a sample of session payloads — every frame of a concatenated `session.jsonl.zstd` is decoded, oversized payloads are scanned up to the plaintext cap and reported as a partial scan, and unreadable ones are reported as `info`, never as a passing scan |
 | `plugins-inventory` | plugins | local plugin packages |
 | `plugins-patch-sources` | plugins | `cordis.yml` lines referencing remote sources |
 | `deps-supply-chain` | plugins | plugin version inventory (offline) / registry advisories (opt-in live) |

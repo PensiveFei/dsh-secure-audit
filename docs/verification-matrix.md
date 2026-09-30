@@ -61,7 +61,7 @@ Manual step (there is no way to fully automate a host audit — that is what
 ### 3. Scenario test matrix
 
 Each scenario from the review maps to a test file (all run by `npm test`, all
-green, 124 tests):
+green, 149 tests):
 
 | Scenario | Covered by |
 | --- | --- |
@@ -74,6 +74,8 @@ green, 124 tests):
 | Malicious prompts incl. obfuscation (zero-width / full-width / homoglyph / base64) | `tests/injection.test.js`, `tests/fixtures/adversarial-samples.js` (23 samples), `npm run eval` (precision/recall/F1 pinned) |
 | Structured JSON redaction (key-name replacement, PII fallback, depth guard, JSONPath labels) | `tests/redact.test.js` |
 | Credentials & PII redaction (CN mobile/ID/bank card w/ date + Luhn validation, email, IPv4, API keys, URL credentials) | `tests/redact.test.js` |
+| Session payload decoding: concatenated zstd frames, header-only no-false-pass, plaintext caps reported as partial scans, sampling spread across workspaces, capped walk disclosed in `limitations` | `tests/audit.test.js` |
+| Regex linearity: the email rule stays bounded on long non-matching filler (quadratic backtracking regression) | `tests/redact.test.js` |
 | Checksum reproducibility (`reportSha256` stable across runs, `inputSha256` over raw bytes) | `tests/audit.test.js`, `tests/injection.test.js` |
 | No-modification guarantee (audit leaves mtime/size untouched) | `tests/audit.test.js` |
 
