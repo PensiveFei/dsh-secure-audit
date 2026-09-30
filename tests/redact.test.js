@@ -97,6 +97,27 @@ test('redacts an email address keeping a 2-char local prefix', () => {
   assert.equal(redacted, 'contact me at zh***@example.com ok');
 });
 
+test('email rule stays linear on long filler and keeps RFC bounds', () => {
+  // Regression: the old `[A-Za-z0-9._%+-]+@…` walked to the end of the input at
+  // EVERY start position before failing — O(n^2), measured 256 KB of text with
+  // no "@" at ~31 s, so a capped 4 MB session payload never finished scanning.
+  // If the quantifiers are ever un-bounded again, this test stops finishing.
+  const filler = 'x'.repeat(512 * 1024);
+  const scan = redactText(filler, { modes: ['email'] });
+  assert.equal(scan.findings.length, 0);
+  assert.equal(scan.redacted.length, filler.length);
+
+  // The bounds are deliberate (RFC 5321 local part <= 64 octets, RFC 1035
+  // label <= 63): shapes the old character class accepted are no longer
+  // treated as addresses.
+  assert.equal(redactText('a@.example.com', { modes: ['email'] }).findings.length, 0);
+  assert.equal(redactText('a@example..com', { modes: ['email'] }).findings.length, 0);
+  assert.equal(redactText(`${'x'.repeat(80)}@example.com`, { modes: ['email'] }).findings.length, 0);
+  // Real addresses, including the multi-label and userinfo cases, still match.
+  assert.equal(redactText('user.name+tag@sub.domain.co.uk', { modes: ['email'] }).findings.length, 1);
+  assert.ok(redactText('https://admin:s3cr3t@example.com/page').findings.some((f) => f.type === 'email'));
+});
+
 test('redacts an IPv4 address but skips invalid octets', () => {
   const { redacted, findings } = redactText('server 192.168.1.10 and bogus 999.1.1.1');
   assert.equal(redacted, 'server ***.***.***.*** and bogus 999.1.1.1');
