@@ -6,6 +6,39 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.12] - 2026-10-11
+
+Metadata-only release. No change to any scan, redaction, or audit behaviour; the
+runtime is byte-identical to 0.2.11. Only `package.json` declarations move.
+
+### Added
+
+- **`dsh.manifestVersion: "1"`**, which identifies the declaration format per
+  the official *Public package manifest fields* note. Format and compatibility
+  declarations are not enforced by current installers or loaders.
+
+  Note this field does **not** participate in the compatibility verdict: the
+  market's `manifestFacts()` reads only `engines.dsh` and lockstep
+  `@deepseek-ai/dsh-*` host peers. Measured with the market's own
+  `deriveHostCompatibility()`, adding it changes no verdict.
+
+### Changed
+
+- **`@deepseek-ai/dsh-tools` peer range gains the `0.2.0` release line**: the
+  range stopped at `>=0.1.5-alpha.0`, so the host requirement the market showed
+  on the card was two release lines stale. Added `|| >=0.2.0-rc.0`, matching the
+  range the sibling plugins carry.
+
+  semver only admits a prerelease when some comparator in the range shares its
+  exact `major.minor.patch` tuple and itself carries a prerelease tag, so each
+  release line must be listed explicitly — a broad-looking range does not cover
+  a line it never names.
+
+### Upgrade notes
+
+- Nothing to do. Neither change is enforced by installers or loaders, so no
+  install can start failing because of this release.
+
 ## [0.2.11] - 2026-09-30
 
 Correctness and robustness release. The 0.2.10 session scan could still report a
