@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createLogger } from '../lib/logger.js';
 
 function capture() {
@@ -47,6 +50,56 @@ test('over-long strings are truncated', () => {
   assert.ok(parsed.note.length <= 4100);
 });
 
+test('redacts nested PII and sensitive keys in every field', () => {
+  const { sink, lines } = capture();
+  const logger = createLogger({ sink });
+  logger.child('req-nested').emit('info', 'test', {
+    note: 'call 13812345678',
+    content: { password: 'not-a-real-secret', items: [{ evidence: 'zhangsan@example.com' }] },
+    access_token: 'not-a-real-token',
+  });
+  const result = JSON.parse(lines[0]);
+  assert.equal(result.note, 'call 138****5678');
+  assert.deepEqual(result.content, {
+    password: '[REDACTED]', items: [{ evidence: 'zh***@example.com' }],
+  });
+  assert.equal(result.access_token, '[REDACTED]');
+});
+
+test('caps strings within protected and nested fields too', () => {
+  const { sink, lines } = capture();
+  const logger = createLogger({ sink });
+  logger.child('req-capped').emit('info', 'test', { text: 'a'.repeat(10_000), nested: ['b'.repeat(10_000)] });
+  const result = JSON.parse(lines[0]);
+  assert.equal(result.text.length, 4000);
+  assert.equal(result.nested[0].length, 4000);
+});
+
+test('fields cannot forge audit metadata', () => {
+  const { sink, lines } = capture();
+  const logger = createLogger({ sink });
+  logger.child('req-real').emit('warn', 'real_event', {
+    ts: 'fake', level: 'info', event: 'forged_event', requestId: 'req-forged',
+  });
+  const result = JSON.parse(lines[0]);
+  assert.notEqual(result.ts, 'fake');
+  assert.equal(result.level, 'warn');
+  assert.equal(result.event, 'real_event');
+  assert.equal(result.requestId, 'req-real');
+});
+
+test('cyclic and non-JSON log fields do not crash the logger', () => {
+  const { sink, lines } = capture();
+  const logger = createLogger({ sink });
+  const fields = { text: '13812345678' };
+  fields.self = fields;
+  logger.child('req-cycle').emit('info', 'test', fields);
+  logger.child('req-bigint').emit('info', 'test', { count: 1n });
+  assert.equal(JSON.parse(lines[0]).self, '[REDACTED]');
+  assert.equal(JSON.parse(lines[0]).text, '138****5678');
+  assert.equal(JSON.parse(lines[1]).error, 'log_fields_unserializable');
+});
+
 test('typed helpers emit scan/redact/audit events', () => {
   const { sink, lines } = capture();
   const logger = createLogger({ sink });
@@ -76,6 +129,22 @@ test('disabled logger writes nothing', () => {
   const logger = createLogger({ sink, enabled: false });
   logger.child('req-5').emit('info', 'x', {});
   assert.equal(lines.length, 0);
+});
+
+test('disabled logger never opens the optional file', async () => {
+  const { sink, lines } = capture();
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-logger-disabled-'));
+  try {
+    const logFile = join(dir, 'audit.log');
+    const logger = createLogger({ sink, enabled: false, logFile });
+    logger.child('req-disabled-file').emit('info', 'test', {});
+    await new Promise((resolve) => setImmediate(resolve));
+    logger.dispose();
+    assert.equal(existsSync(logFile), false);
+    assert.deepEqual(lines, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('a misconfigured logFile degrades to sink output without crashing', async () => {

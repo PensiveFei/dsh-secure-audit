@@ -28,8 +28,8 @@ Four tools and one skill:
 
 | Capability | Tool | What it does |
 | --- | --- | --- |
-| Prompt-injection detection | `security_scan_text` | Rule engine (English + Chinese) with LRU cache, fail-open timeout (configurable fail-closed), a pluggable model classifier, and an obfuscation-resistance layer (zero-width/full-width/homoglyph normalization + bounded base64 decoding, ruleset v4). Returns `allow` / `review` / `block`, a `riskLevel`, and an `inputSha256` for replayable decisions. |
-| PII redaction | `security_redact_text` | Masks CN mobile numbers, CN ID cards, CN bank cards, emails, IPv4, API keys, and URL credentials. Output is safe to log or display. |
+| Prompt-injection detection | `security_scan_text` | Rule engine (English + Chinese) with LRU cache, fail-open timeout (configurable fail-closed), a pluggable model classifier, and an obfuscation-resistance layer (zero-width/full-width/homoglyph normalization + bounded base64 decoding, ruleset v5). Returns `allow` / `review` / `block`, a `riskLevel`, and an `inputSha256` for replayable decisions. |
+| PII redaction | `security_redact_text` | Masks the supported CN mobile, CN ID card, CN bank card, email, IPv4, API key, and URL-credential patterns; other sensitive types still need review. |
 | Structured JSON redaction | `security_redact_json` | Recursively redacts sensitive values inside JSON by key name (`api_key`, `token`, `secret`, `password`, `authorization`, ...) plus a PII fallback on other values. The structure is preserved — safe to hand tool-call arguments or session context to a third-party model. |
 | Local security audit | `security_audit` | 11 read-only checks across config / sessions / plugins / paths / network / env / host, mapped to OWASP LLM + Agentic Top 10, with `quick|full` profile tiers, Linux `/proc/net` wildcard-bind ground truth, an offline plugin supply-chain inventory (opt-in live registry check), and a deterministic, redacted report with a self-checksum (`reportSha256`). |
 | Security review skill | `security-review` | Registered at runtime via the optional `skills` service; teaches the agent how to use the tools and explain verdicts. |
@@ -181,6 +181,16 @@ Use it before handing tool-call arguments or session context to a third-party mo
 
 Since 0.2.5 the key channel replaces the whole value regardless of its type (numbers, booleans, arrays, nested objects); strings inside ordinary arrays also go through the PII fallback; and anything beyond the depth-32 recursion guard is replaced by `[REDACTED]` (fail safe). `keyModes` accepts at most 20 patterns of up to 200 characters each — an invalid pattern surfaces in the `error` field instead of throwing.
 
+Since 0.2.13 custom patterns extend the built-in sensitive-key checks and run in
+an isolated worker with a 2-second matching budget and a 64 MB V8 old-generation
+limit. A timeout or worker failure returns an empty result and a sanitized
+`error`; never forward that result as successfully redacted content. Root JSON
+strings also receive PII redaction, and cycles in pre-parsed input are masked.
+JSON input is capped at 4,194,304 UTF-16 code units before parsing, traversal at
+100,000 values, and aggregate processed key/value characters at 4,194,304.
+Each ordinary string value retains the 1,000,000-character redaction cap.
+Resource-limit failures return an empty result with an explicit `error`.
+
 ### Audit the local harness
 
 ```jsonc
@@ -198,7 +208,9 @@ disclosed in `limitations`), reads at most 64 MB per file, scans at most the
 first 4 MB of decoded plaintext per payload, and holds the entire sample to a
 16 MB plaintext budget. A payload that hits either plaintext limit is reported
 as a **partial scan** — never as a clean pass. Every frame of a concatenated
-`session.jsonl.zstd` container is decoded, not just the first one.
+`session.jsonl.zstd` container is decoded, not just the first one. Since 0.2.13,
+the plaintext limit is enforced during streaming decompression; corrupt frames
+and torn tails are reported as incomplete coverage, including short tail bytes.
 
 Returns `checks[]` plus a `summary` of `pass`/`warn`/`fail`/`error`/`info`, the
 `profile` that produced it, and per-check `owasp` (OWASP Top 10 for LLM
@@ -294,8 +306,8 @@ before relying on it.
 - The injection rules are a fixed pattern table (English + Chinese). They can
   miss novel or obfuscated attacks (false negatives) and can over-flag
   benign phrasing (false positives). `allow` means "no rule fired", not
-  "safe". Fail-open timeouts and truncation downgrade to `allow` with an
-  explicit warning — treat those as "not fully scanned".
+  "safe". Timeouts follow `onTimeout` (default `allow`); truncated input retains
+  its scanned-prefix verdict. Both carry explicit incomplete-coverage warnings.
 - The optional model classifier runs only on `review` verdicts, only when
   configured, and depends on a local model you operate (the built-in adapter
   targets Ollama / Llama-Guard). Without a classifier, ambiguous cases stay
@@ -310,7 +322,7 @@ before relying on it.
 
 **The audit is a posture snapshot.**
 
-- Nine fixed checks; every report carries a `limitations` field stating what
+- Eleven fixed checks; every report carries a `limitations` field stating what
   that run does not cover.
 - File-permission checks use POSIX mode bits; **Windows ACLs are not
   inspected** (Node has no native ACL API).
@@ -325,7 +337,7 @@ before relying on it.
 
 **Compatibility.**
 
-- Tested against `@deepseek-ai/dsh-tools` 0.1.2-alpha.2 only. DSH is pre-1.0;
+- Tested against `@deepseek-ai/dsh-tools` 0.1.2-rc.1. DSH is pre-1.0;
   verify against your pinned version. Live loading in a Cordis host was
   validated at the dsh-tools registration/execution contract level, not in a
   fully running host — install, run `security_audit`, and re-verify after
@@ -399,9 +411,9 @@ The plugin registers at host boot. Install it, then reload the web profile (or r
 
 Add the rule id from the `reasons` output to the plugin's `allowlist` config (see Configuration). The hit then appears in `allowlistedHits` and no longer affects the decision.
 
-**Why does the audit warn about Windows file permissions?**
+**How does the audit handle Windows file permissions?**
 
-The permission checks read POSIX mode bits only; Windows ACLs are not inspected (Node has no native ACL API). Treat permission warnings on Windows as a prompt for a manual check — the report's `limitations` field says the same.
+Windows permission checks return `info` because POSIX mode bits are synthetic on that platform. Windows ACLs are not inspected; review them manually as stated in the report's `limitations` field.
 
 **How do I enable the model classifier?**
 

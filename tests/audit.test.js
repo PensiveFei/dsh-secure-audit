@@ -541,7 +541,13 @@ test('deps-supply-chain live check surfaces advisories (mock registry)', async (
       supplyChainLive: true,
       fetchImpl: async () => ({
         ok: true,
-        async json() { return { metadata: { vulnerabilities: { low: 1, high: 2 } } }; },
+        async json() {
+          return { 'demo-plugin': [
+            { id: 1, severity: 'low' },
+            { id: 2, severity: 'high' },
+            { id: 3, severity: 'high' },
+          ] };
+        },
       }),
     });
     const check = vuln.checks.find((c) => c.id === 'deps-supply-chain');
@@ -750,4 +756,205 @@ test('config walk reaches shallow config before deep log volume', async () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('config-secrets scans nested/minified JSON and escaped property names', async (t) => {
+  for (const content of [
+    JSON.stringify({ providers: [{ apiKey: 'not-a-real-JSON-credential' }] }),
+    '{\n  "provider": {\n    "api\\u004bey": "not-a-real-escaped-credential"\n  }\n}',
+  ]) {
+    const root = mkdtempSync(join(tmpdir(), 'dsa-json-secrets-'));
+    t.after(() => cleanup(root));
+    writeFileSync(join(root, 'settings.json'), content);
+    const report = await runSecurityAudit({ baseDir: root, scope: ['config'] });
+    const secrets = report.checks.find((c) => c.id === 'config-secrets');
+    assert.equal(secrets.status, 'fail');
+    assert.match(secrets.evidence, /apiKey/);
+    assert.ok(!JSON.stringify(report).includes('not-a-real-'));
+  }
+});
+
+test('config-secrets handles quoted keys, exported env files and uppercase literals', async (t) => {
+  for (const [name, content] of [
+    ['settings.yaml', '"apiKey": "not-a-real-quoted-credential"\n'],
+    ['settings.toml', "'password' = 'TESTUPPERCASEPASSWORD'\n"],
+    ['.env.production', 'export API_KEY=TESTUPPERCASEKEY\n'],
+  ]) {
+    const root = mkdtempSync(join(tmpdir(), 'dsa-config-forms-'));
+    t.after(() => cleanup(root));
+    writeFileSync(join(root, name), content);
+    const report = await runSecurityAudit({ baseDir: root, scope: ['config'] });
+    assert.equal(report.checks.find((c) => c.id === 'config-secrets').status, 'fail', name);
+  }
+});
+
+test('config-secrets ignores empty values, comments, explicit substitutions and JSON string text', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-config-nonvalues-'));
+  t.after(() => cleanup(root));
+  writeFileSync(join(root, 'settings.yaml'), [
+    'password: # set through the environment',
+    'apiKey: ""',
+    'token: ${SERVICE_TOKEN}',
+    "secret: '$SERVICE_SECRET'",
+  ].join('\n'));
+  writeFileSync(join(root, 'example.json'), JSON.stringify({ note: 'Documentation: "apiKey": "example-value"' }));
+  const report = await runSecurityAudit({ baseDir: root, scope: ['config'] });
+  assert.equal(report.checks.find((c) => c.id === 'config-secrets').status, 'pass');
+});
+
+test('config-secrets recognizes the JSON credential store as sanctioned storage', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-json-store-'));
+  t.after(() => cleanup(root));
+  writeFileSync(join(root, '.credentials.json'), JSON.stringify({ apiKey: 'not-a-real-store-credential' }));
+  const report = await runSecurityAudit({ baseDir: root, scope: ['config'] });
+  assert.equal(report.checks.find((c) => c.id === 'config-secrets').status, 'warn');
+});
+
+test('sessions: short torn zstd tails never yield a passing scan', async (t) => {
+  if (!zstdCompressSync) return t.skip('zstd is unavailable on this Node version');
+  const root = mkdtempSync(join(tmpdir(), 'dsa-torn-zstd-'));
+  t.after(() => cleanup(root));
+  mkdirSync(join(root, 'sessions'));
+  const header = zstdCompressSync(Buffer.from('{"type":"session"}\n'));
+  writeFileSync(join(root, 'sessions', 'torn.zstd'), Buffer.concat([header, Buffer.from([0x28, 0xb5])]));
+  const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+  const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+  assert.equal(session.status, 'info');
+  assert.match(session.message, /incomplete-frame/);
+  assert.match(session.message, /partial scan, not a clean result/);
+});
+
+test('sessions: large gzip and single-frame zstd payloads retain a bounded PII prefix', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-compressed-cap-'));
+  t.after(() => cleanup(root));
+  mkdirSync(join(root, 'sessions'));
+  const payload = Buffer.from(`{"content":"手机 13912345678 ${'x'.repeat(8 * 1024 * 1024)}"}\n`);
+  writeFileSync(join(root, 'sessions', 'large.gz'), gzipSync(payload));
+  if (zstdCompressSync) writeFileSync(join(root, 'sessions', 'large.zstd'), zstdCompressSync(payload));
+  const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+  const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+  assert.equal(session.status, 'warn');
+  assert.match(session.message, /truncated at 4 MB/);
+  assert.match(session.message, new RegExp(`cn_mobile×${zstdCompressSync ? 2 : 1}`));
+  assert.ok(!JSON.stringify(report).includes('13912345678'));
+});
+
+test('sessions: UTF-8 session content spends the plaintext budget in bytes', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-utf8-budget-'));
+  t.after(() => cleanup(root));
+  mkdirSync(join(root, 'sessions'));
+  // Each file is 3 MiB of bytes but only 1 MiB of JS characters. Counting
+  // characters incorrectly allows all six payloads through a 16 MiB budget.
+  const content = '中'.repeat(1024 * 1024);
+  for (let i = 0; i < 6; i += 1) writeFileSync(join(root, 'sessions', `s-${i}.jsonl`), content);
+  const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+  const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+  assert.equal(session.status, 'info');
+  assert.match(session.message, /partial scan, not a clean result/);
+  assert.match(session.message, /truncated/);
+});
+
+test('deps-supply-chain submits every installed version to bulk advisories', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-deps-versions-'));
+  t.after(() => cleanup(root));
+  for (const [profile, version] of [['a', '1.0.0'], ['b', '2.0.0']]) {
+    const dir = join(root, 'profiles', profile, 'node_modules', 'demo-plugin');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'demo-plugin', version, dsh: {} }));
+  }
+  let sent;
+  const report = await runSecurityAudit({
+    baseDir: root,
+    scope: ['plugins'],
+    supplyChainLive: true,
+    fetchImpl: async (url, options) => {
+      assert.equal(url, 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk');
+      sent = JSON.parse(options.body);
+      return { ok: true, async json() { return {}; } };
+    },
+  });
+  assert.deepEqual(sent, { 'demo-plugin': ['1.0.0', '2.0.0'] });
+  assert.equal(report.checks.find((c) => c.id === 'deps-supply-chain').status, 'pass');
+});
+
+test('deps-supply-chain rejects malformed registry responses instead of passing', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-deps-response-'));
+  t.after(() => cleanup(root));
+  const dir = join(root, 'plugins', 'demo-plugin');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ version: '1.0.0', dsh: {} }));
+  for (const data of [null, [], { error: 'upstream failed' }, { 'demo-plugin': null }, { 'demo-plugin': [{ id: 1 }] }]) {
+    const report = await runSecurityAudit({
+      baseDir: root,
+      scope: ['plugins'],
+      supplyChainLive: true,
+      fetchImpl: async () => ({ ok: true, async json() { return data; } }),
+    });
+    const check = report.checks.find((c) => c.id === 'deps-supply-chain');
+    assert.equal(check.status, 'info');
+    assert.match(check.message, /could not complete/);
+  }
+});
+
+test('deps-supply-chain timeout covers both response headers and body', { timeout: 2000 }, async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-deps-timeout-'));
+  t.after(() => cleanup(root));
+  const dir = join(root, 'plugins', 'demo-plugin');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ version: '1.0.0', dsh: {} }));
+  for (const hangInBody of [false, true]) {
+    let signal;
+    const report = await runSecurityAudit({
+      baseDir: root,
+      scope: ['plugins'],
+      supplyChainLive: true,
+      supplyChainTimeoutMs: 15,
+      fetchImpl: async (_url, options) => {
+        signal = options.signal;
+        if (!hangInBody) return new Promise(() => {});
+        return { ok: true, json() { return new Promise(() => {}); } };
+      },
+    });
+    assert.equal(report.checks.find((c) => c.id === 'deps-supply-chain').status, 'info');
+    assert.equal(signal.aborted, true);
+  }
+});
+
+test('sessions: PII beyond the redactor default cap is inspected in every payload format', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-late-pii-'));
+  t.after(() => cleanup(root));
+  mkdirSync(join(root, 'sessions'));
+  const payload = Buffer.from(`{"content":"${'x'.repeat(1500000)} 手机 13912345678"}\n`);
+  writeFileSync(join(root, 'sessions', 'late.jsonl'), payload);
+  writeFileSync(join(root, 'sessions', 'late.gz'), gzipSync(payload));
+  if (zstdCompressSync) writeFileSync(join(root, 'sessions', 'late.zstd'), zstdCompressSync(payload));
+  const report = await runSecurityAudit({ baseDir: root, scope: ['sessions'] });
+  const session = report.checks.find((c) => c.id === 'sessions-sensitive-content');
+  assert.equal(session.status, 'warn');
+  assert.match(session.message, new RegExp(`cn_mobile×${zstdCompressSync ? 3 : 2}`));
+  assert.ok(!JSON.stringify(report).includes('13912345678'));
+});
+
+test('config-secrets reports files skipped by the read limit as incomplete coverage', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsa-config-readcap-'));
+  t.after(() => cleanup(root));
+  writeFileSync(join(root, 'oversized.yaml'), `apiKey: not-a-real-${'x'.repeat(100)}\n`);
+  writeFileSync(join(root, 'also-oversized.json'), JSON.stringify({ token: 'not-a-real-large-token' }));
+  writeFileSync(join(root, 'irrelevant.txt'), 'x'.repeat(100));
+  const options = { baseDir: root, scope: ['config'], maxBytes: 16 };
+  let report = await runSecurityAudit(options);
+  let check = report.checks.find((c) => c.id === 'config-secrets');
+  assert.equal(check.status, 'info');
+  assert.match(check.message, /2 configuration file\(s\) unreadable or over the 16-byte read limit/);
+  assert.match(check.message, /partial scan, not a clean result/);
+  writeFileSync(join(root, '.credentials.yaml'), 'token: TEST\n');
+  report = await runSecurityAudit(options);
+  check = report.checks.find((c) => c.id === 'config-secrets');
+  assert.equal(check.status, 'warn', 'a stored credential remains visible with incomplete coverage');
+  assert.match(check.message, /coverage incomplete: 2/);
+  writeFileSync(join(root, 'small.yaml'), 'token: TEST\n');
+  report = await runSecurityAudit(options);
+  check = report.checks.find((c) => c.id === 'config-secrets');
+  assert.equal(check.status, 'fail', 'a found secret remains a failure with incomplete coverage');
+  assert.match(check.message, /coverage incomplete: 2/);
 });
