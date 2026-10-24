@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { defineTool, assertObjectJsonSchema } from '@deepseek-ai/dsh-tools';
 import { createInjectionScanner } from './lib/injection.js';
 import { redactText, redactJson } from './lib/redact.js';
+import { redactJsonWithKeyModes } from './lib/redact-key-modes.js';
 import { runSecurityAudit, CHECK_SCOPES } from './lib/audit.js';
 import { createLogger } from './lib/logger.js';
 import { createClassifier } from './lib/classifier.js';
@@ -161,6 +162,7 @@ function renderAudit(args, value) {
 // ---------------------------------------------------------------------------
 
 export function apply(ctx, config = {}) {
+  const defaultMaskChar = typeof config.maskChar === 'string' && config.maskChar ? config.maskChar : '*';
   const logger = createLogger({
     enabled: config.logEnabled !== false,
     logFile: typeof config.logFile === 'string' ? config.logFile : '',
@@ -176,7 +178,7 @@ export function apply(ctx, config = {}) {
     reviewThreshold: config.reviewThreshold,
     allowlist: Array.isArray(config.allowlist) ? config.allowlist : [],
     classifier: createClassifier(config.classifier ?? null),
-    maskChar: typeof config.maskChar === 'string' && config.maskChar ? config.maskChar : '*',
+    maskChar: defaultMaskChar,
     // Timeout policy on budget expiry: 'allow' (fail-open default) /
     // 'review' / 'block' (fail-closed). Invalid values fall back to the
     // engine default inside createInjectionScanner.
@@ -197,7 +199,7 @@ export function apply(ctx, config = {}) {
   // --- security_scan_text ---------------------------------------------------
   registerWithSchemaCheck(defineTool({
     name: 'security_scan_text',
-    description: 'Scan a text for prompt-injection / jailbreak attempts. Runs a fast rule engine first; an optional pluggable model classifier can refine "review" verdicts. Returns a decision (allow/review/block), confidence, per-rule reasons with redacted snippets, and a PII-redacted copy of the input. Fail-open: on timeout or truncation it downgrades to "allow" with an explicit warning. Heuristic: the rules may miss novel attacks and may over-flag benign phrasing; treat "allow" as "no rule fired", not as a safety guarantee — for sensitive flows, review "review" verdicts and pair with the model classifier.',
+    description: 'Scan a text for prompt-injection / jailbreak attempts. Runs a fast rule engine first; an optional pluggable model classifier can refine "review" verdicts. Returns a decision (allow/review/block), confidence, per-rule reasons with redacted snippets, and a PII-redacted copy of the input. Timeout follows the configured onTimeout policy (default allow); truncation returns the scanned prefix verdict with an explicit warning of incomplete coverage. Heuristic: the rules may miss novel attacks and may over-flag benign phrasing; an allow verdict is not a safety guarantee — for sensitive flows, review ambiguous verdicts and pair with the model classifier.',
     parameters: {
       text: {
         type: 'string',
@@ -272,7 +274,10 @@ export function apply(ctx, config = {}) {
       const requestId = randomUUID();
       const log = logger.child(requestId);
       const result = await scanner.scan(args.text, { requestId, role: args.context });
-      const maskedText = args.maskText === false ? '' : redactText(args.text).redacted;
+      const redaction = args.maskText === false ? null : redactText(args.text, { maskChar: defaultMaskChar });
+      const maskedText = redaction?.redacted ?? '';
+      const warnings = [...result.warnings];
+      if (redaction?.truncated) warnings.push('maskedText was truncated to the redaction length limit');
       log.scan(result);
       return {
         requestId,
@@ -286,7 +291,7 @@ export function apply(ctx, config = {}) {
         elapsedMs: result.elapsedMs,
         cacheHit: result.cacheHit,
         truncated: result.truncated,
-        warnings: result.warnings,
+        warnings,
         classifierUsed: result.classifierUsed,
         scannedLength: result.scannedLength ?? args.text.length,
         ruleset: result.ruleset,
@@ -297,7 +302,7 @@ export function apply(ctx, config = {}) {
   // --- security_redact_text -------------------------------------------------
   registerWithSchemaCheck(defineTool({
     name: 'security_redact_text',
-    description: 'Redact personally identifiable information (PII) from text, optimized for Chinese data: CN mobile numbers, CN ID cards (date-validated to avoid order-number false positives), CN bank cards, emails, IPv4 addresses, API keys/tokens, and credentials embedded in URLs. Returns the masked text plus per-type counts with masked samples. The output is always safe to log, store, or display. Covers only the listed types via regex/structural checks: names, addresses, and other context-sensitive PII are NOT masked — redaction is a mitigation, not a guarantee. Pass modes: ["high_entropy"] to additionally mask random secret-like tokens (opt-in; off by default to avoid over-redaction).',
+    description: 'Redact personally identifiable information (PII) from text, optimized for Chinese data: CN mobile numbers, CN ID cards (date-validated to avoid order-number false positives), CN bank cards, emails, IPv4 addresses, API keys/tokens, and credentials embedded in URLs. Returns the masked text plus per-type counts with masked samples. Covers only the listed types via regex/structural checks: names, addresses, and other context-sensitive PII are NOT masked — redaction is a mitigation, not a guarantee. Pass modes: ["high_entropy"] to additionally mask random secret-like tokens (opt-in; off by default to avoid over-redaction).',
     parameters: {
       text: {
         type: 'string',
@@ -347,7 +352,7 @@ export function apply(ctx, config = {}) {
       const log = logger.child(requestId);
       const result = redactText(args.text, {
         modes: args.modes,
-        maskChar: args.maskChar,
+        maskChar: args.maskChar ?? defaultMaskChar,
       });
       log.redact(result);
       return { requestId, redacted: result.redacted, truncated: result.truncated, findings: result.findings };
@@ -361,12 +366,12 @@ export function apply(ctx, config = {}) {
     parameters: {
       json: {
         type: 'string',
-        description: 'JSON text (or a JSON-serializable object) to redact.',
+        description: 'JSON text to redact.',
         required: true,
       },
       keyModes: {
         type: 'array',
-        description: 'Optional extra key-name patterns (regex sources) treated as sensitive; the built-in pattern (api_key, token, secret, password, authorization, credential, ...) always applies.',
+        description: 'Optional extra key-name patterns (regex sources) treated as sensitive; the built-in pattern (api_key, token, secret, password, authorization, credential, ...) always applies. Custom matching runs in an isolated worker with a 2-second budget and returns an error if it cannot complete.',
         items: { type: 'string' },
       },
       maskChar: {
@@ -405,36 +410,9 @@ export function apply(ctx, config = {}) {
     async execute(args) {
       const requestId = randomUUID();
       const log = logger.child(requestId);
-      let keyPattern;
-      if (Array.isArray(args.keyModes) && args.keyModes.length > 0) {
-        // Guard the user-supplied patterns: an invalid regex must surface as
-        // the tool's error field (not a raw throw), and oversized input is
-        // rejected before it can become a pathological compiled pattern.
-        if (args.keyModes.length > 20 || args.keyModes.some((p) => typeof p !== 'string' || p.length === 0 || p.length > 200)) {
-          return {
-            requestId,
-            redactedJson: '',
-            replacedKeys: [],
-            piiCount: 0,
-            error: 'invalid keyModes: at most 20 non-empty string patterns, each up to 200 characters',
-          };
-        }
-        try {
-          keyPattern = new RegExp(args.keyModes.join('|'), 'i');
-        } catch (err) {
-          return {
-            requestId,
-            redactedJson: '',
-            replacedKeys: [],
-            piiCount: 0,
-            error: 'invalid keyModes regex (' + (err?.message ?? 'parse error') + ')',
-          };
-        }
-      }
-      const result = redactJson(args.json, {
-        keyPattern,
-        maskChar: args.maskChar,
-      });
+      const result = Array.isArray(args.keyModes) && args.keyModes.length > 0
+        ? await redactJsonWithKeyModes(args.json, { keyModes: args.keyModes, maskChar: args.maskChar ?? defaultMaskChar })
+        : redactJson(args.json, { maskChar: args.maskChar ?? defaultMaskChar });
       log.emit('info', 'redact_json', {
         replacedKeys: result.replacedKeys.length,
         piiCount: result.piiCount,

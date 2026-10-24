@@ -17,8 +17,8 @@
 
 ## 兼容性
 
-- Peer 依赖：`@deepseek-ai/dsh-tools >= 0.1.0-rc.7`（由 DSH 运行时提供）。
-- 已在 `@deepseek-ai/dsh-tools` 0.1.0-rc.7 上验证。DSH 仍处于 pre-1.0，
+- 可选 Peer：`@deepseek-ai/dsh-tools`，由 DSH 运行时提供；完整范围见 [package.json](package.json)。
+- 已在 `@deepseek-ai/dsh-tools` 0.1.2-rc.1 的注册/执行契约上验证。DSH 仍处于 pre-1.0，
   请固定你的 DSH 版本，并在任一侧升级后重跑 `security_audit`。
 - 无安装脚本、无构建步骤；发布的源码即产物。
 
@@ -26,7 +26,7 @@
 
 | 能力 | 工具 | 说明 |
 | --- | --- | --- |
-| Prompt 注入检测 | `security_scan_text` | 中英规则引擎 + LRU 缓存 + 失败开放超时（可配 fail-closed）+ 可插拔模型分类器 + **混淆对抗层**（零宽字符/全角/西里尔同形字归一化 + 有界 base64 解码，ruleset v4）。返回 `allow`/`review`/`block`、`riskLevel` 与可重放的 `inputSha256`。 |
+| Prompt 注入检测 | `security_scan_text` | 中英规则引擎 + LRU 缓存 + 失败开放超时（可配 fail-closed）+ 可插拔模型分类器 + **混淆对抗层**（零宽字符/全角/西里尔同形字归一化 + 有界 base64 解码，ruleset v5）。返回 `allow`/`review`/`block`、`riskLevel` 与可重放的 `inputSha256`。 |
 | PII 脱敏 | `security_redact_text` | 掩码中国大陆手机号、身份证号、银行卡号、邮箱、IPv4、API key、URL 凭据；可选 `modes: ["high_entropy"]` 掩码高熵随机令牌（默认关闭）。 |
 | 结构化 JSON 脱敏 | `security_redact_json` | 按键名递归脱敏敏感值（`api_key`/`token`/`secret`/`password`…）+ 其余值 PII 正则兜底；保留 JSON 结构（键不脱敏）。 |
 | 本机安全审计 | `security_audit` | 7 个 scope 共 **11 项只读检查**，映射 OWASP LLM Top 10 / Agentic Top 10，支持 `quick|full` 档位、Linux `/proc/net` 通配绑定实测、离线插件供应链清单（可选在线 registry 检查）、确定性脱敏报告 + `reportSha256` 自校验。 |
@@ -156,6 +156,12 @@ bit/字符、至少 2 种字符类别）。该模式**默认关闭**（`modes: [
 0.2.5 起敏感键整值替换（数字/布尔/数组/嵌套对象），普通键数组内字符串走 PII 兜底，
 深度 32 守卫 fail-safe 替换为 `[REDACTED]`。
 
+0.2.13 起自定义规则始终叠加内置敏感键检测，在独立工作线程中执行，预算 2 秒，
+V8 老生代堆上限 64 MB；根字符串也会脱敏，循环引用立即遮蔽。
+JSON 原文上限 4,194,304 个 UTF-16 单元，遍历最多 100,000 个值，累计处理键/值字符
+最多 4,194,304；普通字符串仍默认只处理前 1,000,000 字符。超出总预算或自定义正则
+预算会返回空结果及 `error`，调用方必须检查错误后再使用脱敏结果。
+
 ### 审计本机
 
 ```jsonc
@@ -171,6 +177,9 @@ bit/字符、至少 2 种字符类别）。该模式**默认关闭**（`modes: [
 `limitations`），单文件最多读 64 MB，单个载荷最多扫解码后明文的前 4 MB，整份采样的明文预算 16 MB。
 触及明文上限的载荷一律报 **partial scan（部分扫描）**，绝不报干净通过。串联的 `session.jsonl.zstd`
 容器逐帧解码，不再只解第一帧。
+
+0.2.13 起在流式解压时执行明文预算，损坏帧和短尾部均披露覆盖不全；已读取的预算内
+文本全部进入 PII 检测，修复 100 万字符之后的隐私数据漏检。
 
 返回 `checks[]` + `summary`（pass/warn/fail/error/info）+ 产生该报告的 `profile`，
 以及每条检查的 `owasp`（OWASP LLM Top 10 2025）/`agentic`（OWASP Agentic Top 10）
@@ -270,7 +279,7 @@ const classifier = {
   - 会话文件 PII 采样默认 ≤10 个文件；大目录请调 `sampleLimit`。
   - 在线 `deps-supply-chain` registry 查询为**可选开启**（`supplyChainLive: true`），
     会把已装插件名+版本发送到 registry.npmjs.org；默认离线清单。
-- **兼容性**：仅在 `@deepseek-ai/dsh-tools` 0.1.0-rc.7 上验证；DSH pre-1.0，
+- **兼容性**：在 `@deepseek-ai/dsh-tools` 0.1.2-rc.1 的注册/执行契约上验证；DSH pre-1.0，
   升级任一侧后请重跑 `security_audit` 并回测。
 - **法律**：MIT “as is” 无担保；非官方第三方工具，与 DeepSeek 无关（见顶部声明）。
 
@@ -311,6 +320,8 @@ gh repo edit --add-topic dsh-plugin
 计算新 tarball 的 SHA-256（`sha256sum` / `Get-FileHash`）并把它加进上表 →
 `npm publish`。0.x 迭代含破坏性变更时标记 pre-release 并说明回滚方式；
 tag 不可变——回归以新 patch 版本发布，绝不编辑既有 tag。
+
+0.2.13 的检查结果与后续优化方向见 [代码检查记录](docs/review-2026-10-24.md)。
 
 ## Roadmap
 

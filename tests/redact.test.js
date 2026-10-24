@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { redactText, containsPii, maskSecret, redactJson } from '../lib/redact.js';
+import { redactText, containsPii, maskSecret, redactJson, MAX_JSON_INPUT_LENGTH, MAX_JSON_NODES } from '../lib/redact.js';
 import { PII_RULES } from '../lib/rules.js';
 
 test('redacts a CN mobile number keeping prefix and suffix', () => {
@@ -149,6 +149,17 @@ test('honors a custom mask char', () => {
   assert.equal(redacted, '138####5678');
 });
 
+test('invalid mask characters fall back safely and one Unicode character is supported', () => {
+  const email = 'ab@example.com';
+  for (const maskChar of ['', null, 7, {}, 'ab', 'x'.repeat(100_000), '\ud800']) {
+    assert.equal(redactText(email, { maskChar }).redacted, 'ab***@example.com');
+    assert.equal(maskSecret('abc', maskChar), '***');
+    assert.equal(JSON.parse(redactJson(JSON.stringify(email), { maskChar }).redactedJson), 'ab***@example.com');
+  }
+  assert.equal(redactText('13812345678', { maskChar: '🔒' }).redacted, '138🔒🔒🔒🔒5678');
+  assert.equal(maskSecret('abc', '🔒'), '🔒🔒🔒');
+});
+
 test('truncates oversized input and reports it', () => {
   const big = 'a'.repeat(100) + '13812345678' + 'b'.repeat(100);
   const { redacted, truncated } = redactText(big, { maxLength: 120 });
@@ -244,8 +255,127 @@ test('redactJson honors custom key patterns', () => {
   });
   const out = JSON.parse(redactedJson);
   assert.equal(out.myCustom, '[REDACTED]');
-  assert.equal(out.token, 'x'); // custom pattern replaces the built-in one
-  assert.deepEqual(replacedKeys.map((k) => k.key), ['myCustom']);
+  assert.equal(out.token, '[REDACTED]'); // custom patterns extend the built-in matcher
+  assert.deepEqual(replacedKeys.map((k) => k.key), ['myCustom', 'token']);
+});
+
+test('redactJson redacts a top-level JSON string', () => {
+  const result = redactJson('"call 13812345678"');
+  assert.equal(result.error, null);
+  assert.equal(JSON.parse(result.redactedJson), 'call 138****5678');
+  assert.equal(result.piiCount, 1);
+});
+
+test('redactJson resets global and sticky key patterns without mutating the caller', () => {
+  for (const keyPattern of [/^custom/g, /^custom/y]) {
+    keyPattern.lastIndex = 4;
+    const result = redactJson({ customA: 'first', customB: 'second', customC: 'third' }, { keyPattern });
+    assert.deepEqual(JSON.parse(result.redactedJson), {
+      customA: '[REDACTED]', customB: '[REDACTED]', customC: '[REDACTED]',
+    });
+    assert.equal(keyPattern.lastIndex, 4);
+  }
+});
+
+test('redactJson applies value caps even when no PII was found', () => {
+  const result = redactJson({ note: 'a'.repeat(100), items: ['b'.repeat(100)] }, { maxLength: 20 });
+  assert.deepEqual(JSON.parse(result.redactedJson), { note: 'a'.repeat(20), items: ['b'.repeat(20)] });
+  assert.equal(result.piiCount, 0);
+});
+
+test('redactJson masks cycles immediately while preserving repeated noncyclic objects', () => {
+  const cyclic = { note: '13812345678' };
+  cyclic.left = cyclic;
+  cyclic.right = cyclic;
+  const result = redactJson(cyclic);
+  assert.equal(result.error, null);
+  assert.deepEqual(JSON.parse(result.redactedJson), {
+    note: '138****5678', left: '[REDACTED]', right: '[REDACTED]',
+  });
+  const shared = { note: '13812345678' };
+  assert.deepEqual(JSON.parse(redactJson([shared, shared]).redactedJson), [
+    { note: '138****5678' }, { note: '138****5678' },
+  ]);
+});
+
+test('redactJson cannot reintroduce raw data through an own toJSON hook', () => {
+  let invoked = false;
+  const input = {
+    note: '13812345678',
+    toJSON() {
+      invoked = true;
+      return { token: 'not-a-real-secret', note: '13812345678' };
+    },
+  };
+  const result = redactJson(input);
+  assert.equal(invoked, false);
+  assert.equal(result.error, null);
+  assert.deepEqual(JSON.parse(result.redactedJson), { note: '138****5678' });
+  const atLimit = redactJson(input, { maxDepth: 0 });
+  assert.equal(invoked, false);
+  assert.deepEqual(JSON.parse(atLimit.redactedJson), { note: '[REDACTED]' });
+});
+
+test('redactJson never invokes overridden array methods or reads sensitive getters', () => {
+  const items = ['13812345678'];
+  items.map = () => ['13812345678'];
+  const input = {
+    items,
+    get password() { throw new Error('secret getter must not run'); },
+  };
+  const result = redactJson(input);
+  assert.equal(result.error, null);
+  assert.deepEqual(JSON.parse(result.redactedJson), { items: ['138****5678'], password: '[REDACTED]' });
+});
+
+test('redactJson reports non-JSON values and getter failures without leaking exceptions', () => {
+  const throwing = { get note() { throw new Error('private /home/person secret'); } };
+  for (const input of [undefined, { count: 1n }, throwing]) {
+    const result = redactJson(input);
+    assert.equal(result.redactedJson, '');
+    assert.equal(typeof result.error, 'string');
+    assert.ok(!result.error.includes('private'));
+    assert.deepEqual(result.replacedKeys, []);
+  }
+});
+
+test('redactJson rejects recursion and value limits that bypass its guards', () => {
+  for (const maxDepth of [NaN, Infinity, -1, 0.5, 257]) {
+    assert.ok(redactJson({ note: 'x' }, { maxDepth }).error);
+  }
+  for (const maxLength of [NaN, Infinity, -1, 0.5]) {
+    assert.ok(redactJson({ note: 'x' }, { maxLength }).error);
+  }
+});
+
+test('redactJson rejects oversized JSON text before parsing', () => {
+  const result = redactJson('"' + 'x'.repeat(MAX_JSON_INPUT_LENGTH) + '"');
+  assert.equal(result.redactedJson, '');
+  assert.equal(result.error, 'JSON input exceeds maximum length');
+  assert.deepEqual(result.replacedKeys, []);
+});
+
+test('redactJson caps expansion of a small shared-object DAG', () => {
+  let shared = { note: 'hello' };
+  for (let i = 0; i < 20; i += 1) shared = { left: shared, right: shared };
+  const result = redactJson(shared);
+  assert.equal(result.redactedJson, '');
+  assert.equal(result.error, 'JSON redaction limit exceeded');
+  assert.deepEqual(result.replacedKeys, []);
+});
+
+test('redactJson counts structurally masked values toward its node budget', () => {
+  const input = Object.fromEntries(Array.from({ length: MAX_JSON_NODES }, (_, i) => ['secret-' + i, 'x']));
+  const result = redactJson(input);
+  assert.equal(result.redactedJson, '');
+  assert.equal(result.error, 'JSON redaction limit exceeded');
+});
+
+test('redactJson caps aggregate characters when a shared value expands repeatedly', () => {
+  const shared = 'a'.repeat(900_000);
+  const result = redactJson([shared, shared, shared, shared, shared]);
+  assert.equal(result.redactedJson, '');
+  assert.equal(result.error, 'JSON redaction limit exceeded');
 });
 
 test('redactJson depth guard does not crash on deep nesting', () => {

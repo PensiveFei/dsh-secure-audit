@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 
 /**
  * Registration test against the REAL @deepseek-ai/dsh-tools.
@@ -214,4 +215,68 @@ test('security_scan_text scannedLength reports the scanned (post-truncation) len
   const result = await def.execute({ text: 'x'.repeat(250000), maskText: false }, {});
   assert.equal(result.truncated, true);
   assert.equal(result.scannedLength, 200000);
+});
+
+test('security_redact_json custom modes extend the built-in sensitive keys', async (t) => {
+  const loaded = await load(t);
+  if (!loaded) return;
+  const { registered, ctx } = fakeCtx();
+  loaded.plugin.apply(ctx, {});
+  const def = registered.find((d) => d.name === 'security_redact_json');
+  const result = await def.execute({
+    json: JSON.stringify({ opts: 'custom', api_key: 'not-a-real-secret', token: 'not-a-real-token' }),
+    keyModes: ['^opts$'],
+  }, {});
+  assert.equal(result.error, '');
+  assert.deepEqual(JSON.parse(result.redactedJson), {
+    opts: '[REDACTED]', api_key: '[REDACTED]', token: '[REDACTED]',
+  });
+});
+
+test('security_redact_json terminates pathological custom regexes without blocking the host', async (t) => {
+  const loaded = await load(t);
+  if (!loaded) return;
+  const { registered, ctx } = fakeCtx();
+  loaded.plugin.apply(ctx, {});
+  const def = registered.find((d) => d.name === 'security_redact_json');
+  let hostResponsive = false;
+  const timer = setTimeout(() => { hostResponsive = true; }, 100);
+  try {
+    const result = await def.execute({
+      json: JSON.stringify({ ['a'.repeat(60) + '!']: 'private' }), keyModes: ['(a+)+$'],
+    }, {});
+    assert.match(result.error, /budget/);
+    assert.equal(result.redactedJson, '');
+    assert.equal(hostResponsive, true);
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+test('configured maskChar applies to all text and JSON redaction tool outputs', async (t) => {
+  const loaded = await load(t);
+  if (!loaded) return;
+  const { registered, ctx } = fakeCtx();
+  loaded.plugin.apply(ctx, { maskChar: '#' });
+  const scan = await registered.find((d) => d.name === 'security_scan_text').execute({ text: '13812345678' }, {});
+  const text = await registered.find((d) => d.name === 'security_redact_text').execute({ text: '13812345678' }, {});
+  const json = await registered.find((d) => d.name === 'security_redact_json').execute({ json: '{"phone":"13812345678"}' }, {});
+  assert.equal(scan.maskedText, '138####5678');
+  assert.equal(text.redacted, '138####5678');
+  assert.equal(JSON.parse(json.redactedJson).phone, '138####5678');
+});
+
+test('custom key matching works when the host starts with --input-type=module', () => {
+  const helperUrl = new URL('../lib/redact-key-modes.js', import.meta.url).href;
+  const code = `import { redactJsonWithKeyModes } from ${JSON.stringify(helperUrl)};
+    const result = await redactJsonWithKeyModes('{"foo":"example"}', { keyModes: ['foo'] });
+    console.log(JSON.stringify(result));`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    encoding: 'utf8', timeout: 10_000, windowsHide: true,
+  });
+  assert.ifError(child.error);
+  assert.equal(child.status, 0, child.stderr);
+  const result = JSON.parse(child.stdout);
+  assert.equal(result.error, null);
+  assert.equal(JSON.parse(result.redactedJson).foo, '[REDACTED]');
 });

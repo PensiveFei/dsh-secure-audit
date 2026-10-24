@@ -6,6 +6,67 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.2.13] - 2026-10-24
+
+### Added
+
+- Regression coverage for configuration formats, incomplete compressed sessions,
+  cache isolation, nested logging, JSON edge cases, and regex resource limits.
+- Windows Node 24 CI alongside the Linux Node 20 / 22 / 24 matrix.
+- Custom `security_redact_json` key patterns run in a worker with a 2-second
+  budget and a 64 MB V8 old-generation limit; failures return sanitized errors.
+
+### Fixed
+
+- Configuration-secret detection now inspects JSON and quoted YAML keys as well
+  as YAML list entries and environment assignments, without treating arbitrary
+  uppercase credential literals as environment references. Unreadable or
+  over-budget configuration files prevent an otherwise-clean passing verdict.
+- Gzip and concatenated zstd session scans limit plaintext during decompression,
+  count UTF-8 bytes, and disclose torn tails or failed frames instead of reporting
+  an unearned clean pass. Skippable zstd frames count toward the frame budget.
+- Session PII detection now covers all text within the reader's 4 MiB budget
+  instead of silently stopping at the redactor's default 1,000,000 characters.
+- Six injection rules no longer have quadratic whitespace backtracking. Ruleset
+  **v5** retains the pinned attack and benign-case behavior.
+- Scan caches isolate nested hit objects, distinguish truncated inputs and
+  context boundaries, bypass custom classifier contexts they cannot key safely,
+  and do not retain incomplete timeout results. Classifier timeouts cancel
+  cooperative adapters, and Ollama confidence values stay within 0..1.
+- JSON redaction covers root strings, keeps built-in secret detection when
+  custom patterns are supplied, resets stateful regexes, applies value caps
+  consistently, masks cycles, and prevents serialization hooks from restoring
+  raw PII. Invalid pre-parsed values return sanitized errors.
+- JSON text and aggregate processing are limited to 4,194,304 characters and
+  traversal to 100,000 values. Invalid mask characters fall back to `*`.
+- Logs redact nested values and secret-shaped keys, preserve logger-owned
+  metadata, and do not open a log file when logging is disabled.
+- The configured mask character now applies consistently across tool outputs;
+  scan output discloses truncation of its optional redacted text.
+- Publishing requires an actual tag ref, checks its checked-out commit and exact
+  version, serializes runs for the same publish ref, and checks npm 11.5.1 exactly.
+  The GitHub release gate also runs the adversarial evaluation.
+- Opt-in supply-chain checks use npm bulk advisories, retain every installed
+  version, reject malformed registry responses, and time out body parsing too.
+- Updated the locked development dependency `zod` to 4.6.7, resolving the npm
+  advisory reported for 4.5.4; synchronized the lockfile's host peer declaration.
+
+### Upgrade notes
+
+- Tested against the real `@deepseek-ai/dsh-tools` **0.1.2-rc.1** registration,
+  execution, rendering and output-schema contract. A complete live DSH host was
+  not exercised. No host peer-range change; re-run the audit after upgrading.
+- Custom key patterns are additive and may return an explicit resource-limit
+  error. Unsupported pre-parsed values and invalid recursion options fail with
+  an error instead of throwing. Rollback is possible by pinning 0.2.12, but it
+  restores the defects above.
+
+### Known issues
+
+- Detection remains heuristic; Windows ACLs are not inspected, session coverage
+  is sampled and budgeted, and names/addresses require additional PII handling.
+- See [the review report](docs/review-2026-10-24.md) for findings and validation.
+
 ## [0.2.12] - 2026-10-11
 
 Metadata-only release. No change to any scan, redaction, or audit behaviour; the

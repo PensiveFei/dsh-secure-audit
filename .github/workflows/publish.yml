@@ -51,7 +51,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-${{ inputs.publish_ref || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -77,42 +77,27 @@ jobs:
           node --version
           NPMV=$(npm --version)
           echo "npm $NPMV"
-          MAJOR=${NPMV%%.*}
-          MINOR=${NPMV#*.}
-          MINOR=${MINOR%%.*}
-          if [ "$MAJOR" -lt 11 ] || { [ "$MAJOR" -eq 11 ] && [ "$MINOR" -lt 5 ]; }; then
-            echo "::error::npm $NPMV is below 11.5.1 -- Trusted Publishing needs 11.5.1+"
-            exit 1
-          fi
+          node -e 'const v = process.argv[1].split(".").map(Number); if (v[0] < 11 || (v[0] === 11 && (v[1] < 5 || (v[1] === 5 && v[2] < 1)))) { console.error("npm 11.5.1+ required"); process.exit(1); }' "$NPMV"
 
       - name: Guard package.json version against the ref
         env:
-          PUBLISH_REF: ${{ inputs.publish_ref }}
+          PUBLISH_REF: ${{ inputs.publish_ref || github.ref }}
         run: |
           PKG=$(node -p "require('./package.json').version")
           case "$PUBLISH_REF" in
-            refs/tags/*) REF="${PUBLISH_REF#refs/tags/}" ;;
-            "")          REF="${GITHUB_REF_NAME}" ;;
-            *)           REF="${PUBLISH_REF##*/}" ;;
-          esac
-          echo "package.json=$PKG  ref=$REF"
-          case "$REF" in
-            v*)
-              TAG="${REF#v}"
-              if [ "$PKG" != "$TAG" ]; then
-                echo "::error::package.json version ($PKG) does not match tag ($REF)"
-                exit 1
-              fi
-              echo "OK: version and tag agree"
-              ;;
+            refs/tags/v*) REF="${PUBLISH_REF#refs/tags/}" ;;
             *)
-              # A branch ref publishes whatever that branch happens to contain
-              # under its own package.json version — main is normally AHEAD of
-              # the last tag, so those bytes would match no tag at all.
-              echo "::error::refusing to publish from a non-tag ref ($REF) -- pass publish_ref=refs/tags/vX.Y.Z"
+              echo "::error::refusing to publish from a non-tag ref -- pass publish_ref=refs/tags/vX.Y.Z"
               exit 1
               ;;
           esac
+          echo "package.json=$PKG  ref=$REF"
+          if [ "$PKG" != "${REF#v}" ]; then
+            echo "::error::package.json version ($PKG) does not match tag ($REF)"
+            exit 1
+          fi
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$PUBLISH_REF^{commit}")"
+          echo "OK: version and checked-out tag agree"
 
       # release 事件与手动 dispatch 会对同一个版本各跑一次。已发布不是错误，只是无事可做。
       # 跳过发布步骤并留一条 warning —— 既幂等，也不会把「发过了」伪装成绿。
@@ -140,8 +125,10 @@ jobs:
       # 不带 token、不带 --provenance：Trusted Publishing 会自动生成 provenance。
       - name: Publish to npm (OIDC, no token)
         if: steps.published.outputs.state == 'new'
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             echo "dry-run: 只演练，不上传"
             npm publish --access public --dry-run
           else
