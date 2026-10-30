@@ -1,5 +1,7 @@
 # dsh-secure-audit
 
+[English](https://github.com/PensiveFei/dsh-secure-audit/blob/main/README.md) | [简体中文](https://github.com/PensiveFei/dsh-secure-audit/blob/main/README.zh.md)
+
 > **免责声明**：这是**非官方的第三方工具**，与 DeepSeek 无隶属、背书或赞助关系。
 > “DeepSeek”与“DeepSeek Harness”均为其各自所有者的商标；此处引用仅用于说明
 > 本插件所针对的运行环境。

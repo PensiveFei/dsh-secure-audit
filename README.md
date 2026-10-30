@@ -1,5 +1,7 @@
 # dsh-secure-audit
 
+[English](https://github.com/PensiveFei/dsh-secure-audit/blob/main/README.md) | [简体中文](https://github.com/PensiveFei/dsh-secure-audit/blob/main/README.zh.md)
+
 > **Disclaimer.** This is an **unofficial third-party tool**. It is not
 > affiliated with, endorsed by, or sponsored by DeepSeek. "DeepSeek" and
 > "DeepSeek Harness" are trademarks of their respective owners; they are
