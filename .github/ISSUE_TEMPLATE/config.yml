@@ -3,6 +3,6 @@ contact_links:
   - name: Security vulnerability
     url: https://github.com/PensiveFei/dsh-secure-audit/security/advisories/new
     about: Report a security issue privately — do not post details in a public issue.
-  - name: Questions & feedback
-    url: https://github.com/PensiveFei/dsh-secure-audit/issues
-    about: Ask questions and share feedback (please search existing issues first).
+  - name: 贡献指南 / Contributing
+    url: https://github.com/PensiveFei/dsh-secure-audit/blob/main/CONTRIBUTING.md
+    about: 环境准备、测试、提交规范、脱敏与发布归属流程。
