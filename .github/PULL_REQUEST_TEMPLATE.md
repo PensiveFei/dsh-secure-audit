@@ -1,20 +1,60 @@
-## Summary
+<!-- 各节请填写；不适用时说明原因。安全漏洞不要公开发 PR，先按 SECURITY.md 私密报告。 -->
 
-What this PR changes and why. Reference the issue if any.
+## 变更与关联
 
-## Checklist
+解决的问题、修改后的行为及 Issue/PR 链接：
 
-- [ ] `npm run lint` passes (syntax + secret scan)
-- [ ] `npm test` passes
-- [ ] New injection rules include an adversarial case **and** a benign
-      false-positive case in `tests/fixtures/adversarial-samples.js`
-- [ ] New audit checks are read-only, deterministic, and have a redaction test
-- [ ] `RULESET_VERSION` bumped if rule semantics changed
-- [ ] `CHANGELOG.md` updated (Added / Fixed / Upgrade notes / Known issues)
-- [ ] No real credentials or unredacted user paths anywhere in the diff
+## 版本与系统
 
-## Meta-security review
+- 插件版本 / 基础 commit：
+- DSH、dsh-tools 与 profile 类型：
+- 操作系统版本 / 架构：
+- Node.js / npm：
 
-- [ ] No write paths added to `lib/`
-- [ ] Error messages do not leak paths or stack traces
-- [ ] Logged fields are already-safe or PII-masked
+## 复现与验证
+
+最小复现步骤、修复前后结果或新功能的验收步骤（使用虚构数据）：
+
+| 命令 / 手动检查 | 结果与跳过项 |
+| --- | --- |
+| `npm run lint` | |
+| `npm test` | |
+| `npm run eval` | |
+| `npm pack --dry-run`（涉及发布文件时） | |
+| 隔离 DSH 宿主 smoke（涉及集成时） | |
+
+## 脱敏日志与报告
+
+相关日志/工具输出（无日志时说明原因）：
+
+```text
+```
+
+脱敏报告：已检查哪些正文、日志、截图和附件；替换了哪些凭据、个人信息、
+用户路径或私有地址；替换是否影响复现；审计范围、未检查、跳过、截断和其他限制。
+无附件或报告时说明原因。不要上传原始会话、真实配置或完整环境变量。
+
+## 兼容性与风险
+
+误报/漏报、资源预算、依赖变更、升级及回滚影响；纯文档修改可说明不适用：
+
+## 贡献与署名
+
+代码作者、报告者、复现/测试/评审/文档贡献者及各自的 Issue/PR 链接：
+
+Release 公开署名偏好（默认 GitHub 用户名，可要求匿名；无需提供私人邮箱）：
+
+## 提交检查
+
+- [ ] 已阅读 [CONTRIBUTING.md](../CONTRIBUTING.md)，上方必填项均已填写或解释不适用
+- [ ] 已人工检查 diff、日志、截图和附件，无真实凭据、个人信息或私有数据
+- [ ] 新注入规则含攻击样本与正常样本；语义变化已更新 `RULESET_VERSION`（不适用则说明）
+- [ ] 新审计检查只读、确定，含状态/形状/脱敏回归；不把未扫描报告为通过（不适用则说明）
+- [ ] 日志只记录安全摘要或脱敏数据，错误不泄露用户路径/内部堆栈
+- [ ] 依赖变更已同步锁文件；行为变更已添加未发布 CHANGELOG 条目（不适用则说明）
+
+## 维护者合并前检查
+
+- [ ] 已回应并感谢贡献者，确认公开署名偏好与每人的贡献类型
+- [ ] CI 已通过，保留作者及协作归属，记录本次发布应致谢的 Issue/PR 链接
+- [ ] Release 的“贡献与致谢”待办已记录，包含报告、复现、测试和文档贡献

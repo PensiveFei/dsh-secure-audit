@@ -393,16 +393,13 @@ The `dsh-plugin` topic makes the repo discoverable to the ecosystem (awesome lis
 
 dsh.so scans the source on submission. A registry entry is marked **Declared** (self-declared compatibility) unless users report real compatibility results in the official Discussions — that is the only route to the **Verified** tag. If you use this plugin and it works on your setup, report it there.
 
-Release checklist for this repo:
-
-1. `npm run lint` (syntax + secret scan) and `npm test` green on CI (GitHub Actions matrix: Node 20/22/24).
-2. `package-lock.json` committed — pin the dependency tree.
-3. `CHANGELOG.md` updated under the tagged version, in four sections: **新增 / 修复 / 升级提醒 / 已知问题** (Added / Fixed / Upgrade notes / Known issues). Upgrade notes must state the DSH snapshot the release was tested against and any compatibility changes.
-4. `npm pack --dry-run` to confirm `files` ships `index.js`, `lib/`, `skills/`, `examples/`, and the patch file.
-5. Tag and push (`git tag v0.1.0 && git push origin v0.1.0`). The release workflow runs tests, builds the tarball, and opens a draft release. For 0.x iterations, mark the release as pre-release when it contains breaking changes, and state whether rollback is possible.
-6. Tags are immutable: a regression ships as a new patch release, never as an edit to an existing tag.
-7. Attach the tarball (the workflow does this) so `dsh plugin add ./xxx.tgz` users get the exact artifact. Compute the new tarball's SHA-256 (`sha256sum` / `Get-FileHash`) and add the row to the *Release artifacts & integrity* table above.
-8. Optionally `npm publish` (build-less: source is the artifact).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for environment setup, test commands,
+commit conventions, the release checklist, and contributor credit. Tag pushes
+create a draft with a tarball. Maintainers complete its notes using the
+[Release template](.github/RELEASE_TEMPLATE.md), preserving existing notes and
+verifying contributor attribution and the asset SHA-256 before
+publishing. Publishing the Release triggers npm Trusted Publishing (OIDC).
+Tags remain immutable; regressions ship in a new version.
 
 ## FAQ
 

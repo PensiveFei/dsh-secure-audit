@@ -1,0 +1,70 @@
+name: Bug 报告 / Bug report
+description: 提供环境、最小复现、日志和脱敏报告，帮助定位问题。
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你帮助改进 dsh-secure-audit。请先搜索已有 Issue。
+        **漏洞、泄露和可利用绕过请按 [SECURITY.md](https://github.com/PensiveFei/dsh-secure-audit/blob/main/SECURITY.md) 私密报告。**
+        公开附件和截图也需要脱敏，请勿上传真实凭据、会话或个人数据。
+  - type: input
+    id: version
+    attributes:
+      label: 插件版本 / commit
+      placeholder: dsh-secure-audit 版本、安装渠道或源码 commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 系统与运行环境
+      description: 填写操作系统版本/架构、Node.js、npm、DSH 和 dsh-tools 版本、profile 类型；无法获取的项说明原因。
+      placeholder: Windows / Linux / macOS；x64 / arm64；node --version；npm --version；DSH 版本；web / desktop / CLI
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 最小复现步骤
+      description: 使用虚构数据，提供触发工具/规则/配置、执行步骤和复现频率；无法稳定复现时写明已尝试内容。
+      placeholder: "1. 在隔离 profile 配置……\n2. 使用虚构样本调用……\n3. 观察……"
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 预期与实际结果
+      description: 包括错误码、规则 ID、误报/漏报或未检查状态；不要公开安全漏洞细节。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 脱敏日志与工具输出
+      description: 仅粘贴定位所需的片段；没有日志时填写原因。不要附原始会话目录或完整环境变量。
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: redaction
+    attributes:
+      label: 脱敏报告与覆盖限制
+      description: 说明检查的日志/截图/附件、替换的数据类别及是否影响复现；提供审计摘要时注明部分扫描、跳过和截断。无附件/报告时说明原因。
+      placeholder: "已检查：……；已替换：凭据/个人信息/用户路径/私有地址……；复现影响：……；覆盖限制：……"
+    validations:
+      required: true
+  - type: input
+    id: credit
+    attributes:
+      label: 公开致谢偏好（可选）
+      description: 默认使用 GitHub 用户名；可要求匿名或指定已公开的称呼，无需填写邮箱。
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我已人工复核正文、日志、截图与附件，移除了真实凭据、个人信息和私有数据。
+          required: true
+        - label: 这不是需要私密报告的安全漏洞；如涉及漏洞，我会改用 SECURITY.md 中的渠道。
+          required: true

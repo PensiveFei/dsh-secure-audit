@@ -317,12 +317,11 @@ gh repo create PensiveFei/dsh-secure-audit --public --source . --push
 gh repo edit --add-topic dsh-plugin
 ```
 
-发布清单：`npm run lint` + `npm test` + `npm run eval` 全绿 → 提交
-`package-lock.json` → 更新 `CHANGELOG.md`（新增/修复/升级提醒/已知问题四节）→
-`npm pack --dry-run` 确认产物 → tag + push（Release 工作流自动出 draft + tarball）→
-计算新 tarball 的 SHA-256（`sha256sum` / `Get-FileHash`）并把它加进上表 →
-`npm publish`。0.x 迭代含破坏性变更时标记 pre-release 并说明回滚方式；
-tag 不可变——回归以新 patch 版本发布，绝不编辑既有 tag。
+环境准备、测试命令、提交规范、完整发布清单与贡献归属见
+[CONTRIBUTING.md](CONTRIBUTING.md)。推送 tag 后工作流生成带 tarball 的草稿；
+维护者保留已有正文，按 [Release 模板](.github/RELEASE_TEMPLATE.md) 补齐说明，
+核对贡献者署名和实际资产 SHA-256 后发布，由 npm Trusted Publishing
+（OIDC）上传。tag 不可变，回归以新版本修复。
 
 0.2.13 的检查结果与后续优化方向见 [代码检查记录](docs/review-2026-10-24.md)。
 

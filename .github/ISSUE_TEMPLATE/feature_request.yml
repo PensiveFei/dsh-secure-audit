@@ -1,0 +1,63 @@
+name: 功能建议 / Feature request
+description: 描述问题、使用环境和可验证的期望行为。
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你的建议。规则、脱敏和审计行为变更应包含预期输入/输出与误报考虑。
+        安全漏洞请按 [SECURITY.md](https://github.com/PensiveFei/dsh-secure-audit/blob/main/SECURITY.md) 私密报告。
+  - type: input
+    id: version
+    attributes:
+      label: 当前插件版本 / commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 系统与运行环境
+      description: 操作系统版本/架构、Node.js/npm、DSH/dsh-tools 版本和 profile 类型；纯文档建议可说明不适用。
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题与场景步骤
+      description: 描述目前的限制和最小场景步骤；新需求没有现有复现时明确说明，并使用虚构样本。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议行为、验收标准和替代方案
+      description: 写出可核验的输入/输出、误报/漏报考虑、兼容性和考虑过的替代方案。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 脱敏日志或示例
+      description: 有则提供必要片段；没有时明确写明“无日志”及原因。
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: redaction
+    attributes:
+      label: 脱敏报告
+      description: 说明已检查的正文/截图/附件、替换类别、对场景的影响及覆盖限制；无附件时明确说明。
+    validations:
+      required: true
+  - type: input
+    id: credit
+    attributes:
+      label: 公开致谢偏好（可选）
+      description: 默认 GitHub 用户名，也可要求匿名；不要填写私人邮箱。
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我已搜索已有建议，人工检查正文和附件，确保没有真实凭据、个人信息或私有数据。
+          required: true
