@@ -29,3 +29,31 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run eval
+
+  # Verify the declared peer range against real host packages. The plugin's
+  # contract with the host is `defineTool` / `assertObjectJsonSchema` plus the
+  # output-schema validation, so a version that cannot register and execute
+  # the four tools is not "supported" no matter what package.json says.
+  host-compat:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        host:
+          - 0.1.0-rc.6
+          - 0.1.2-rc.1
+          - 0.1.7-rc.2
+          - 0.2.0-rc.2
+          - 0.2.1-rc.5
+          - 0.2.2-alpha.2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install @deepseek-ai/dsh-tools@${{ matrix.host }}
+        run: npm install --no-save --package-lock=false --no-audit --no-fund "@deepseek-ai/dsh-tools@${{ matrix.host }}"
+      - name: Registration, execution and schema contract
+        run: node --test tests/index.smoke.test.js tests/manifest.test.js

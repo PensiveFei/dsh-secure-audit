@@ -95,8 +95,11 @@ function parseSkill(markdown) {
 
 function renderScan(args, value) {
   const lines = [
-    `**Security scan** — decision \`${value.decision}\` (confidence ${value.confidence.toFixed(2)})`,
+    `**Security scan** — decision \`${value.decision}\` (risk score ${value.riskScore.toFixed(2)}, decision confidence ${value.decisionConfidence.toFixed(2)})`,
   ];
+  if (!value.scanComplete) {
+    lines.push('⚠ scan incomplete — this verdict covers only the scanned portion and follows the configured truncation/timeout policy; do not read `allow` as a clean result.');
+  }
   if (value.reasons.length > 0) {
     lines.push('Hits:');
     for (const r of value.reasons.slice(0, 8)) {
@@ -183,6 +186,9 @@ export function apply(ctx, config = {}) {
     // 'review' / 'block' (fail-closed). Invalid values fall back to the
     // engine default inside createInjectionScanner.
     onTimeout: config.onTimeout,
+    // Policy floor when the input exceeds scanMaxLength: 'allow' (default) /
+    // 'review' / 'block'. scanComplete is false either way.
+    onTruncate: config.onTruncate,
   });
 
   // Read-only host capability snapshot for the security_audit check.
@@ -199,7 +205,7 @@ export function apply(ctx, config = {}) {
   // --- security_scan_text ---------------------------------------------------
   registerWithSchemaCheck(defineTool({
     name: 'security_scan_text',
-    description: 'Scan a text for prompt-injection / jailbreak attempts. Runs a fast rule engine first; an optional pluggable model classifier can refine "review" verdicts. Returns a decision (allow/review/block), confidence, per-rule reasons with redacted snippets, and a PII-redacted copy of the input. Timeout follows the configured onTimeout policy (default allow); truncation returns the scanned prefix verdict with an explicit warning of incomplete coverage. Heuristic: the rules may miss novel attacks and may over-flag benign phrasing; an allow verdict is not a safety guarantee — for sensitive flows, review ambiguous verdicts and pair with the model classifier.',
+    description: 'Scan a text for prompt-injection / jailbreak attempts. Runs a fast rule engine first; an optional pluggable model classifier can refine "review" verdicts. Returns a decision (allow/review/block), riskScore, decisionConfidence, per-rule reasons with redacted snippets, and a PII-redacted copy of the input. scanComplete is false when the input was truncated at scanMaxLength or the scan budget expired; the decision then follows the configured onTruncate/onTimeout policy (default allow) — never read an incomplete allow as a clean result. Heuristic: the rules may miss novel attacks and may over-flag benign phrasing, so an allow verdict is not a safety guarantee — for sensitive flows, review ambiguous verdicts and pair with the model classifier.',
     parameters: {
       text: {
         type: 'string',
@@ -223,8 +229,11 @@ export function apply(ctx, config = {}) {
         properties: {
           requestId: { type: 'string', description: 'Audit-trail correlation id.' },
           decision: { type: 'string', enum: ['allow', 'review', 'block'], description: 'Overall verdict.' },
-          confidence: { type: 'number', description: '0..1 confidence in the decision.' },
-          riskLevel: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Coarse risk level derived from rule severities and the decision band; policies can route on it.' },
+          confidence: { type: 'number', description: 'Deprecated alias of riskScore, kept for 0.2.x consumers. It has always meant rule evidence, never model certainty — read riskScore and decisionConfidence instead.' },
+          riskScore: { type: 'number', description: '0..1 rule-layer risk score: severity-weighted evidence from matched rules. The model classifier never writes this field.' },
+          decisionConfidence: { type: 'number', description: '0..1 confidence in the reported decision: the classifier\'s own certainty when it contributed, otherwise the rule score\'s support for the decision. 0 when scanComplete is false.' },
+          scanComplete: { type: 'boolean', description: 'True only when the whole input was scanned and the rule pass finished. False means the input was truncated or the scan budget expired and the decision follows the onTruncate/onTimeout policy — an allow is not a clean result then.' },
+          riskLevel: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Coarse risk level derived from rule severities and the final decision band; policies can route on it.' },
           inputSha256: { type: 'string', description: 'SHA-256 of the scanned text (post-truncation); lets you locally replay this decision from the exact bytes scanned.' },
           reasons: {
             type: 'array',
@@ -258,7 +267,8 @@ export function apply(ctx, config = {}) {
           },
           maskedText: { type: 'string', description: 'PII-redacted copy of the input (when maskText is true).' },
           elapsedMs: { type: 'integer' },
-          cacheHit: { type: 'boolean' },
+          cacheHit: { type: 'boolean', description: 'True when this result was fully replayed from cache (rule pass cached and no model call made).' },
+          ruleCacheHit: { type: 'boolean', description: 'True when the rule pass was served from the per-text LRU cache; independent of requestId and of the classifier.' },
           truncated: { type: 'boolean' },
           warnings: { type: 'array', items: { type: 'string' } },
           classifierUsed: { type: 'boolean' },
@@ -283,13 +293,17 @@ export function apply(ctx, config = {}) {
         requestId,
         decision: result.decision,
         confidence: result.confidence,
+        riskScore: result.riskScore,
+        decisionConfidence: result.decisionConfidence,
         riskLevel: result.riskLevel,
+        scanComplete: result.scanComplete,
         inputSha256: result.inputSha256,
         reasons: result.reasons,
         allowlistedHits: result.allowlistedHits,
         maskedText,
         elapsedMs: result.elapsedMs,
         cacheHit: result.cacheHit,
+        ruleCacheHit: result.ruleCacheHit,
         truncated: result.truncated,
         warnings,
         classifierUsed: result.classifierUsed,

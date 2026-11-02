@@ -61,17 +61,23 @@ Manual step (there is no way to fully automate a host audit — that is what
 ### 3. Scenario test matrix
 
 Each scenario from the review maps to a test file (all run by `npm test`, all
-green, 149 tests):
+green, 216 tests):
 
 | Scenario | Covered by |
 | --- | --- |
 | Default-off state (JSONL log disabled, supply-chain lookup offline) | `tests/logger.test.js`, `tests/index.smoke.test.js`, `tests/audit.test.js` |
 | Audit `quick` / `full` profiles, `maxFiles` / `maxBytes` overrides | `tests/audit.test.js` |
-| Timeout: budget fail-open downgrade, configurable fail-closed (`onTimeout`) | `tests/injection.test.js` |
+| Timeout: budget fail-open downgrade, configurable fail-closed (`onTimeout`), `scanComplete=false` | `tests/injection.test.js`, `tests/index.smoke.test.js` |
+| Truncation: `onTruncate` floor (allow/review/block), no downgrade of prefix hits, model skipped, `scanComplete` + `scannedLength` | `tests/injection.test.js`, `tests/index.smoke.test.js` |
 | Classifier timeout / degrade to rules-only | `tests/classifier.test.js` |
+| Classifier semantics: `riskScore` not overwritten, `decisionConfidence` fallback, malformed verdicts ignored | `tests/injection.test.js`, `tests/classifier.test.js` |
+| Cache layering: rule cache survives `requestId`, model cache scoped to role/declared key, transient failures retried | `tests/injection.test.js`, `tests/index.smoke.test.js` |
 | Exceptions: invalid JSON, invalid `keyModes`, oversized patterns, error statuses | `tests/redact.test.js`, `tests/audit.test.js` |
 | Oversized input: truncation, `scannedLength` vs `inputSha256` consistency | `tests/injection.test.js` |
-| Malicious prompts incl. obfuscation (zero-width / full-width / homoglyph / base64) | `tests/injection.test.js`, `tests/fixtures/adversarial-samples.js` (23 samples), `npm run eval` (precision/recall/F1 pinned) |
+| Malicious prompts incl. obfuscation (zero-width / full-width / homoglyph / base64) | `tests/injection.test.js`, `tests/fixtures/adversarial-samples.js` (64 samples), `npm run eval` (precision/recall/F1 plus FP/FN rates per language and long-text p95) |
+| Ordinary dev/ops work and security education stay `allow` (scoped deletes, status prose, 越狱 write-ups, vulnerability reports) | `tests/fixtures/adversarial-samples.js`, `npm run eval` |
+| Quoted attack text: pinned to `review` and labelled as an accepted false positive | `tests/fixtures/adversarial-samples.js`, `npm run eval` |
+| Host contract across declared peer versions | `.github/workflows/ci.yml` job `host-compat` (6 real `@deepseek-ai/dsh-tools` versions) |
 | Structured JSON redaction (key-name replacement, PII fallback, depth guard, JSONPath labels) | `tests/redact.test.js` |
 | Credentials & PII redaction (CN mobile/ID/bank card w/ date + Luhn validation, email, IPv4, API keys, URL credentials) | `tests/redact.test.js` |
 | Session payload decoding: concatenated zstd frames, header-only no-false-pass, plaintext caps reported as partial scans, sampling spread across workspaces, capped walk disclosed in `limitations` | `tests/audit.test.js` |
@@ -90,11 +96,15 @@ green, 149 tests):
 ### 5. Re-run after DSH / peer upgrades; reading verdicts
 
 - README *Compatibility* and every release's *Upgrade notes* state the tested
-  `@deepseek-ai/dsh-tools` version and require re-running `security_audit`
-  after upgrading either side. Treat a release that only bumps the peer range
-  as a re-verification trigger for this whole matrix.
-- `allow` means "no rule fired", not "safe". Fail-open timeouts and truncation
-  downgrade to `allow` with an explicit warning — treat those as "not fully
+  `@deepseek-ai/dsh-tools` versions and require re-running `security_audit`
+  after upgrading either side. The `host-compat` CI job installs six real host
+  versions (0.1.0-rc.6, 0.1.2-rc.1, 0.1.7-rc.2, 0.2.0-rc.2, 0.2.1-rc.5,
+  0.2.2-alpha.2) and runs the registration / execution / output-schema
+  contract against each. Treat a release that bumps the peer range as a
+  re-verification trigger for this whole matrix.
+- `allow` means "no rule fired", not "safe". `scanComplete: false` means the
+  input was truncated or the budget expired; the decision then follows
+  `onTruncate` / `onTimeout` (default `allow`) — treat those as "not fully
   scanned". `security_audit` is a posture snapshot, not a certification
   (see README *Limitations and disclaimer*).
 

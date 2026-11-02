@@ -20,17 +20,22 @@ Also listed in [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesom
 
 ## Compatibility
 
-- Peer dependency: `@deepseek-ai/dsh-tools >= 0.1.2-alpha.2`, provided by the DSH runtime.
-- Tested against `@deepseek-ai/dsh-tools` 0.1.2-alpha.2. DSH itself is pre-1.0;
-  pin your DSH version and re-run `security_audit` after upgrading either
-  side. Release notes state the DSH snapshot each version was tested against.
+- Peer dependency: `@deepseek-ai/dsh-tools` — the authoritative range is in
+  [package.json](package.json). It is optional, so installing the plugin never
+  pulls a second copy of the DSH core tree.
+- CI verifies the registration / execution / rendering contract against the
+  real `@deepseek-ai/dsh-tools` at **0.1.0-rc.6**, **0.1.2-rc.1**,
+  **0.1.7-rc.2**, **0.2.0-rc.2**, **0.2.1-rc.5** and **0.2.2-alpha.2**
+  (job `host-compat` in [ci.yml](.github/workflows/ci.yml)). DSH itself is
+  pre-1.0: pin your DSH version and re-run `security_audit` after upgrading
+  either side.
 - No install-time scripts and no build step; the shipped source is the artifact.
 
 Four tools and one skill:
 
 | Capability | Tool | What it does |
 | --- | --- | --- |
-| Prompt-injection detection | `security_scan_text` | Rule engine (English + Chinese) with LRU cache, fail-open timeout (configurable fail-closed), a pluggable model classifier, and an obfuscation-resistance layer (zero-width/full-width/homoglyph normalization + bounded base64 decoding, ruleset v5). Returns `allow` / `review` / `block`, a `riskLevel`, and an `inputSha256` for replayable decisions. |
+| Prompt-injection detection | `security_scan_text` | Rule engine (English + Chinese) with per-text LRU caching, split rule/model caches, fail-open timeout and truncation policies (configurable fail-closed), a pluggable model classifier, and an obfuscation-resistance layer (zero-width/full-width/homoglyph normalization + bounded base64 decoding, ruleset v6). Returns `allow` / `review` / `block`, `riskScore`, `decisionConfidence`, `scanComplete`, a `riskLevel`, and an `inputSha256` for replayable decisions. |
 | PII redaction | `security_redact_text` | Masks the supported CN mobile, CN ID card, CN bank card, email, IPv4, API key, and URL-credential patterns; other sensitive types still need review. |
 | Structured JSON redaction | `security_redact_json` | Recursively redacts sensitive values inside JSON by key name (`api_key`, `token`, `secret`, `password`, `authorization`, ...) plus a PII fallback on other values. The structure is preserved — safe to hand tool-call arguments or session context to a third-party model. |
 | Local security audit | `security_audit` | 11 read-only checks across config / sessions / plugins / paths / network / env / host, mapped to OWASP LLM + Agentic Top 10, with `quick|full` profile tiers, Linux `/proc/net` wildcard-bind ground truth, an offline plugin supply-chain inventory (opt-in live registry check), and a deterministic, redacted report with a self-checksum (`reportSha256`). |
@@ -44,7 +49,7 @@ The plugin has no build step and no install scripts. `index.js` and `lib/` are t
 
 ```bash
 # from a tarball (attached to every GitHub release)
-dsh plugin add ./dsh-secure-audit-0.1.0.tgz
+dsh plugin add "./dsh-secure-audit-$VERSION.tgz"
 
 # from git source (no build runs; pin the commit)
 dsh plugin add github:PensiveFei/dsh-secure-audit#<commit>
@@ -67,8 +72,8 @@ see [release.yml](.github/workflows/release.yml)); nothing is assembled by hand.
 Verify the file you install against the published hash before trusting it:
 
 ```bash
-sha256sum dsh-secure-audit-<version>.tgz        # POSIX
-Get-FileHash dsh-secure-audit-<version>.tgz -Algorithm SHA256   # Windows
+sha256sum "dsh-secure-audit-$VERSION.tgz"        # POSIX
+Get-FileHash "dsh-secure-audit-$VERSION.tgz" -Algorithm SHA256   # Windows
 ```
 
 | Release | Artifact | Size | SHA-256 |
@@ -108,8 +113,11 @@ each release (see the release checklist). Git installs should pin a commit
 {
   "requestId": "…",
   "decision": "block",
-  "confidence": 1.0,
+  "riskScore": 1.0,            // rule evidence: severity-weighted rule hits
+  "decisionConfidence": 1.0,   // certainty in THIS decision (model, else rule support)
+  "confidence": 1.0,           // deprecated alias of riskScore (0.2.x compatibility)
   "riskLevel": "high",
+  "scanComplete": true,
   "inputSha256": "…",
   "reasons": [
     {
@@ -123,6 +131,7 @@ each release (see the release checklist). Git installs should pin a commit
   ],
   "maskedText": "…",
   "cacheHit": false,
+  "ruleCacheHit": false,
   "truncated": false,
   "warnings": [],
   "classifierUsed": false
@@ -131,9 +140,30 @@ each release (see the release checklist). Git installs should pin a commit
 
 Decisions:
 
-- `block` — high-confidence rule hits (any critical hit, or confidence ≥ `blockThreshold`).
-- `review` — ambiguous; the pluggable classifier is consulted if configured.
-- `allow` — nothing above `reviewThreshold`. If `warnings` mention a budget timeout or truncation, that means "not fully scanned", not "safe".
+- `block` — `riskScore` ≥ `blockThreshold`, or any critical rule hit.
+- `review` — `riskScore` ≥ `reviewThreshold`; the pluggable classifier is consulted if configured.
+- `allow` — nothing above `reviewThreshold`. `allow` means "no rule fired", not "safe".
+
+Two numbers, two meanings:
+
+- `riskScore` (0..1) is rule evidence only — the severity-weighted sum of
+  matched rules. The model classifier never writes it. `confidence` is its
+  deprecated alias, kept so 0.2.x consumers keep working.
+- `decisionConfidence` (0..1) is certainty in the reported decision: the
+  classifier's own `confidence` when it contributed, otherwise the rule
+  score's support for the decision (`riskScore` for review/block, `1 − riskScore`
+  for allow). It is 0 when `scanComplete` is false.
+
+Coverage is separate from the verdict:
+
+- `scanComplete` is `false` when the input exceeded `scanMaxLength` or the
+  cooperative budget expired. The decision then follows `onTruncate` /
+  `onTimeout` (both default `allow`; set `review` or `block` for fail-closed
+  flows), and `warnings` names the policy. **An incomplete `allow` is not a
+  clean result** — route on `scanComplete`, not on the decision alone.
+- Truncation is a decision *floor*, never a downgrade: a hit found in the
+  scanned prefix still counts. The model classifier is skipped for truncated
+  input because it would see only the prefix.
 
 Since ruleset v4 the scanner also runs over a normalized copy of the input
 (zero-width characters stripped; full-width and Cyrillic lookalikes mapped to
@@ -144,10 +174,17 @@ base64 payloads) still match. Each reason carries `via` — `plain`,
 
 Each result also carries:
 
-- `riskLevel` — `low` / `medium` / `high` derived from the hit severities and the decision band; policies and auto-approvers can route on it.
+- `riskLevel` — `low` / `medium` / `high` derived from the hit severities and the final decision band; policies and auto-approvers can route on it.
 - `inputSha256` — SHA-256 of the raw scanned text (not the derived variants), so any decision can be locally replayed from the exact bytes scanned (pair it with `ruleset`).
+- `cacheHit` / `ruleCacheHit` — full replay vs. the rule pass alone. The rule
+  cache is keyed by text only (never by `requestId`), so a per-call request id
+  cannot defeat it; model verdicts are cached separately, scoped to the
+  classifier's declared key (role-only for the built-in adapter).
 
-On a budget timeout the decision follows the configured `onTimeout` policy (default `allow`, i.e. fail-open; set `review` or `block` for fail-closed sensitive flows), `confidence` is 0, and `warnings` explains why — reasons are dropped because the scan was incomplete.
+On a budget timeout the decision follows the configured `onTimeout` policy
+(default `allow`, i.e. fail-open), reasons are dropped because the scan was
+incomplete, and `decisionConfidence` is 0.
+
 
 ### Redact PII
 
@@ -248,10 +285,11 @@ All keys optional (see `cordis.patch.yml`).
 | --- | --- | --- |
 | `scanTimeoutMs` | `100` | Cooperative scan budget; on expiry the decision follows `onTimeout` |
 | `scanMaxLength` | `200000` | Hard input cap for scans |
-| `onTimeout` | `allow` | Policy when the budget expires: `allow` (fail-open, default) / `review` / `block` (fail-closed) |
-| `cacheSize` | `512` | LRU entries for identical scan inputs |
-| `blockThreshold` | `0.8` | Confidence ≥ → `block` |
-| `reviewThreshold` | `0.5` | Confidence ≥ → `review` |
+| `onTimeout` | `allow` | Policy when the budget expires: `allow` (fail-open, default) / `review` / `block` (fail-closed). `scanComplete` is `false` either way |
+| `onTruncate` | `allow` | Policy floor when the input exceeds `scanMaxLength`: `allow` (default) / `review` / `block`. Applied on top of the scanned prefix (never a downgrade); `scanComplete` is `false` |
+| `cacheSize` | `512` | LRU entries per cache layer (rule cache and model cache) |
+| `blockThreshold` | `0.8` | `riskScore` ≥ → `block` |
+| `reviewThreshold` | `0.5` | `riskScore` ≥ → `review` |
 | `allowlist` | `[]` | Rule ids always treated as benign (false-positive appeal channel) |
 | `classifier` | `null` | Pluggable model classifier, see below |
 | `maskChar` | `*` | Masking character |
@@ -262,7 +300,11 @@ All keys optional (see `cordis.patch.yml`).
 
 ### Pluggable model classifier
 
-The rule engine runs first. The classifier is called only when the rules land on `review` with no critical hit. Its failure or timeout falls back to the rule decision with a warning — it never raises to the caller.
+The rule engine runs first. The classifier is called only when the rules land on `review` with no critical hit, and only on a complete scan (truncated input is never sent to the model). Its failure or timeout falls back to the rule decision with a warning — it never raises to the caller.
+
+Its `confidence` is certainty in **its own** `decision` and is reported as
+`decisionConfidence`; it does not replace `riskScore`, so a confident SAFE
+verdict cannot inflate the risk score or the risk level.
 
 Two ways to configure it:
 
@@ -278,8 +320,14 @@ classifier:
 ```js
 // 2. Programmatic — when embedding the plugin or wrapping the scanner:
 const classifier = {
+  // confidence = certainty in THIS decision, reported as decisionConfidence
   // -> { decision?: "allow" | "review" | "block", confidence?: 0..1 }
   async classify(text, context) { /* … */ },
+  // Optional: declare which part of `context` affects the verdict so the
+  // model cache can replay it. Return null to opt out. The built-in adapter
+  // declares a role-only key; a custom classifier with no declared key is
+  // cached only for a role-only context.
+  cacheKeyFor(context) { return ['role', context?.role ?? 'none']; },
 };
 // plugin config: { classifier }
 ```
@@ -309,8 +357,11 @@ before relying on it.
 - The injection rules are a fixed pattern table (English + Chinese). They can
   miss novel or obfuscated attacks (false negatives) and can over-flag
   benign phrasing (false positives). `allow` means "no rule fired", not
-  "safe". Timeouts follow `onTimeout` (default `allow`); truncated input retains
-  its scanned-prefix verdict. Both carry explicit incomplete-coverage warnings.
+  "safe". Coverage is reported separately: `scanComplete: false` means the
+  input was truncated or the budget expired, and the decision follows
+  `onTruncate` / `onTimeout` (default `allow`). `npm run eval` publishes the
+  current false-positive / false-negative rates per language over the corpus
+  in `tests/fixtures/adversarial-samples.js`.
 - The optional model classifier runs only on `review` verdicts, only when
   configured, and depends on a local model you operate (the built-in adapter
   targets Ollama / Llama-Guard). Without a classifier, ambiguous cases stay
@@ -340,11 +391,11 @@ before relying on it.
 
 **Compatibility.**
 
-- Tested against `@deepseek-ai/dsh-tools` 0.1.2-rc.1. DSH is pre-1.0;
-  verify against your pinned version. Live loading in a Cordis host was
-  validated at the dsh-tools registration/execution contract level, not in a
-  fully running host — install, run `security_audit`, and re-verify after
-  upgrading either side.
+- See [Compatibility](#compatibility) above. The tested host versions are
+  enforced by the `host-compat` CI job rather than restated per release; live
+  loading in a Cordis host is validated at the dsh-tools
+  registration/execution contract level, not in a fully running host —
+  install, run `security_audit`, and re-verify after upgrading either side.
 
 **Legal.**
 
@@ -358,13 +409,15 @@ before relying on it.
 ```bash
 npm install          # installs the peer dep for tests
 npm test             # node --test (auto-discovers tests/*.test.js)
-npm run eval         # detection-quality metrics over the adversarial suite (CI)
+npm run eval         # detection quality: precision/recall/F1, per-language FP/FN rates, long-text p95 (CI)
 ```
 
 Test coverage:
 
 - `redact` — every PII type, custom mask chars, modes filter, truncation, and the order-number false-positive cases.
-- `injection` — rules, LRU hit/miss, budget fail-open, allowlist, classifier degrade, and the adversarial suite in `tests/fixtures/adversarial-samples.js` (add a case for every new rule).
+- `injection` — rules, split rule/model cache hit-miss, truncation and budget
+  policies, allowlist, classifier degrade, and the adversarial suite in
+  `tests/fixtures/adversarial-samples.js` (add a case for every new rule).
 - `audit` — report shape, determinism across runs, no-modification guarantee (mtime/size asserted), evidence redaction, placeholder skip, path normalization.
 - `logger` — JSONL shape, requestId, auto-redaction of sensitive fields.
 - `redactJson` — sensitive-key replacement (nested objects/arrays, JSONPath labels, non-string values), PII fallback on other values and inside arrays, invalid-JSON and invalid-`keyModes` handling, custom key patterns, fail-safe depth guard.
@@ -421,7 +474,7 @@ Configure `classifier: { adapter: ollama, endpoint, model, timeoutMs }` in the p
 
 **Is `dsh plugin add dsh-secure-audit` (npm) available?**
 
-Yes — the latest release is published on the npm registry. `dsh plugin add dsh-secure-audit` installs from the registry; the per-release tarball (`dsh plugin add ./dsh-secure-audit-<version>.tgz`) and the git source install (`github:PensiveFei/dsh-secure-audit#<commit>`) also work.
+Yes — the latest release is published on the npm registry. `dsh plugin add dsh-secure-audit` installs from the registry; the per-release tarball (`dsh plugin add "./dsh-secure-audit-$VERSION.tgz"`) and the git source install (`github:PensiveFei/dsh-secure-audit#<commit>`) also work.
 
 ## Roadmap
 

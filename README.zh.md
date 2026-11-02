@@ -19,16 +19,15 @@
 
 ## 兼容性
 
-- 可选 Peer：`@deepseek-ai/dsh-tools`，由 DSH 运行时提供；完整范围见 [package.json](package.json)。
-- 已在 `@deepseek-ai/dsh-tools` 0.1.2-rc.1 的注册/执行契约上验证。DSH 仍处于 pre-1.0，
-  请固定你的 DSH 版本，并在任一侧升级后重跑 `security_audit`。
+- 可选 Peer：`@deepseek-ai/dsh-tools`，由 DSH 运行时提供；权威范围见 [package.json](package.json)（可选依赖，安装本插件不会拖入第二棵 DSH 核心包树）。
+- CI 的 `host-compat` 任务会对真实 `@deepseek-ai/dsh-tools` **0.1.0-rc.6**、**0.1.2-rc.1**、**0.1.7-rc.2**、**0.2.0-rc.2**、**0.2.1-rc.5**、**0.2.2-alpha.2** 逐个验证注册/执行/渲染契约（见 [ci.yml](.github/workflows/ci.yml)）。DSH 仍处于 pre-1.0，请固定你的 DSH 版本，并在任一侧升级后重跑 `security_audit`。
 - 无安装脚本、无构建步骤；发布的源码即产物。
 
 四个工具 + 一个技能：
 
 | 能力 | 工具 | 说明 |
 | --- | --- | --- |
-| Prompt 注入检测 | `security_scan_text` | 中英规则引擎 + LRU 缓存 + 失败开放超时（可配 fail-closed）+ 可插拔模型分类器 + **混淆对抗层**（零宽字符/全角/西里尔同形字归一化 + 有界 base64 解码，ruleset v5）。返回 `allow`/`review`/`block`、`riskLevel` 与可重放的 `inputSha256`。 |
+| Prompt 注入检测 | `security_scan_text` | 中英规则引擎 + 按文本 LRU 缓存（规则/模型双层）+ 失败开放的超时与截断策略（可配 fail-closed）+ 可插拔模型分类器 + **混淆对抗层**（零宽字符/全角/西里尔同形字归一化 + 有界 base64 解码，ruleset v6）。返回 `allow`/`review`/`block`、`riskScore`、`decisionConfidence`、`scanComplete`、`riskLevel` 与可重放的 `inputSha256`。 |
 | PII 脱敏 | `security_redact_text` | 掩码中国大陆手机号、身份证号、银行卡号、邮箱、IPv4、API key、URL 凭据；可选 `modes: ["high_entropy"]` 掩码高熵随机令牌（默认关闭）。 |
 | 结构化 JSON 脱敏 | `security_redact_json` | 按键名递归脱敏敏感值（`api_key`/`token`/`secret`/`password`…）+ 其余值 PII 正则兜底；保留 JSON 结构（键不脱敏）。 |
 | 本机安全审计 | `security_audit` | 7 个 scope 共 **11 项只读检查**，映射 OWASP LLM Top 10 / Agentic Top 10，支持 `quick|full` 档位、Linux `/proc/net` 通配绑定实测、离线插件供应链清单（可选在线 registry 检查）、确定性脱敏报告 + `reportSha256` 自校验。 |
@@ -44,7 +43,7 @@
 
 ```bash
 # 从 tarball（每个 GitHub Release 均附带）
-dsh plugin add ./dsh-secure-audit-0.1.0.tgz
+dsh plugin add "./dsh-secure-audit-$VERSION.tgz"
 
 # 从 git 源码（不执行构建；固定 commit）
 dsh plugin add github:PensiveFei/dsh-secure-audit#<commit>
@@ -67,8 +66,8 @@ Git 安装说明：
 已公布的哈希校验你拿到的文件：
 
 ```bash
-sha256sum dsh-secure-audit-<version>.tgz        # POSIX
-Get-FileHash dsh-secure-audit-<version>.tgz -Algorithm SHA256   # Windows
+sha256sum "dsh-secure-audit-$VERSION.tgz"        # POSIX
+Get-FileHash "dsh-secure-audit-$VERSION.tgz" -Algorithm SHA256   # Windows
 ```
 
 | 版本 | 资产 | 大小 | SHA-256 |
@@ -105,10 +104,26 @@ Get-FileHash dsh-secure-audit-<version>.tgz -Algorithm SHA256   # Windows
 
 决策：
 
-- `block` — 高置信规则命中（任意 critical，或置信度 ≥ `blockThreshold`）。
-- `review` — 模糊；配置了分类器时会调用模型进一步裁决。
-- `allow` — 无高于 `reviewThreshold` 的命中。若 `warnings` 提到预算超时或截断，
-  那意味着“未完整扫描”，而非“安全”。
+- `block` — `riskScore` ≥ `blockThreshold`，或任意 critical 规则命中。
+- `review` — `riskScore` ≥ `reviewThreshold`；配置了分类器时会调用模型进一步裁决。
+- `allow` — 无高于 `reviewThreshold` 的命中。`allow` 只表示“没有规则命中”，不是“安全”。
+
+两个分数，两种含义：
+
+- `riskScore`（0..1）只表示规则证据：命中规则严重度的加权和，模型不会改写它。
+  `confidence` 是它的弃用别名，仅为兼容 0.2.x 消费方保留。
+- `decisionConfidence`（0..1）表示对**当前决策**的把握：分类器参与时取其自带
+  `confidence`，否则取规则分数对该决策的支持度（review/block 用 `riskScore`，
+  allow 用 `1 − riskScore`）。`scanComplete` 为 false 时恒为 0。
+
+覆盖范围与结论分开报告：
+
+- `scanComplete` 在输入超过 `scanMaxLength`、或协作扫描预算到期时为 `false`；此时
+  决策按 `onTruncate` / `onTimeout`（默认都是 `allow`；敏感流程可设 `review` /
+  `block`）给出，`warnings` 会点名所用策略。**不完整的 `allow` 不是干净结果**——
+  请按 `scanComplete` 路由，而不是只看 `decision`。
+- 截断是决策下限，不会降级：已扫描前缀中的命中仍然生效。截断输入不会送模型分类器
+  （模型只能看到前缀，无法补足覆盖）。
 
 自 ruleset v4 起，扫描器还会对输入的**归一化副本**（剥离零宽字符；全角与
 西里尔同形字映射为 ASCII）以及至多 4 个有界 base64 解码候选进行扫描，因此
@@ -118,11 +133,14 @@ base64 载荷）仍可命中。每条 reason 带 `via`（`plain` | `normalized` 
 
 每个结果还带有：
 
-- `riskLevel` — `low`/`medium`/`high`，由命中严重度与决策区间推导；策略与自动放行可据此路由。
+- `riskLevel` — `low`/`medium`/`high`，由命中严重度与最终决策区间推导；策略与自动放行可据此路由。
 - `inputSha256` — 原始扫描文本（非派生变体）的 SHA-256，任何决策都可在本地用相同 `ruleset` 重放。
+- `cacheHit` / `ruleCacheHit` — 完整重放 vs 仅规则层重放。规则缓存只按文本做键
+  （不含 `requestId`），因此每次调用都带 requestId 也不会绕过缓存；模型裁决单独缓存，
+  作用域由分类器声明的键决定（内置适配器为 role-only）。
 
-预算超时时按 `onTimeout` 策略（默认 `allow` 失败开放；敏感流程可设
-`review`/`block` 失败关闭）给出决策，`confidence` 为 0，`warnings` 说明原因。
+预算超时时按 `onTimeout` 策略给出决策，reasons 因扫描不完整而丢弃，
+`decisionConfidence` 为 0，`warnings` 说明原因。
 
 ### 脱敏 PII
 
@@ -214,10 +232,11 @@ JSON 原文上限 4,194,304 个 UTF-16 单元，遍历最多 100,000 个值，�
 | --- | --- | --- |
 | `scanTimeoutMs` | `100` | 协作式扫描预算；到期后按 `onTimeout` 决策 |
 | `scanMaxLength` | `200000` | 扫描输入硬上限 |
-| `onTimeout` | `allow` | 预算到期策略：`allow`（失败开放，默认）/ `review` / `block`（失败关闭） |
-| `cacheSize` | `512` | 相同输入 LRU 条目数 |
-| `blockThreshold` | `0.8` | 置信度 ≥ → `block` |
-| `reviewThreshold` | `0.5` | 置信度 ≥ → `review` |
+| `onTimeout` | `allow` | 预算到期策略：`allow`（失败开放，默认）/ `review` / `block`（失败关闭）；`scanComplete` 均为 `false` |
+| `onTruncate` | `allow` | 输入超过 `scanMaxLength` 时的决策下限：`allow`（默认）/ `review` / `block`。叠加在已扫描前缀的结论之上、不会降级；`scanComplete` 为 `false` |
+| `cacheSize` | `512` | 每层 LRU 条目数（规则缓存与模型缓存各一份） |
+| `blockThreshold` | `0.8` | `riskScore` ≥ → `block` |
+| `reviewThreshold` | `0.5` | `riskScore` ≥ → `review` |
 | `allowlist` | `[]` | 始终视为良性的规则 id（误报申诉通道） |
 | `classifier` | `null` | 可插拔模型分类器，见下 |
 | `maskChar` | `*` | 掩码字符 |
@@ -228,8 +247,12 @@ JSON 原文上限 4,194,304 个 UTF-16 单元，遍历最多 100,000 个值，�
 
 ### 可插拔模型分类器
 
-规则引擎先跑；仅当规则落于 `review` 且无 critical 命中时才调用分类器。
+规则引擎先跑；仅当规则落于 `review`、无 critical 命中、且扫描完整（截断输入不送模型）时才调用分类器。
 失败/超时回退到规则决策并告警，绝不向调用方抛错。
+
+分类器的 `confidence` 表示**对它自己那个 decision** 的把握，输出为
+`decisionConfidence`；它不会覆盖 `riskScore`，所以一个高把握的 SAFE 裁决不会抬高
+风险分或 `riskLevel`。
 
 两种配置方式：
 
@@ -245,8 +268,12 @@ classifier:
 ```js
 // 2. 编程方式——内嵌插件或包装扫描器时：
 const classifier = {
+  // confidence = 对它自己那个 decision 的把握，输出为 decisionConfidence
   // -> { decision?: "allow" | "review" | "block", confidence?: 0..1 }
   async classify(text, context) { /* … */ },
+  // 可选：声明 context 中真正影响裁决的字段，供模型缓存重放；返回 null 表示不缓存。
+  // 内置适配器声明 role-only；未声明键的自定义分类器只在 role-only 上下文下缓存。
+  cacheKeyFor(context) { return ['role', context?.role ?? 'none']; },
 };
 // 插件配置： { classifier }
 ```
@@ -273,7 +300,9 @@ const classifier = {
 
 - **检测是启发式的**：固定规则表（中英）+ 混淆对抗层仍可能漏掉新颖/混淆攻击（漏报）、
   误伤良性措辞（误报）。`allow` 表示“没有规则命中”，不是“安全”。
-  失败开放超时/截断降级 `allow` 并显式告警——请当作“未完整扫描”。
+  覆盖范围单独报告：`scanComplete: false` 表示输入被截断或预算到期，决策按
+  `onTruncate` / `onTimeout`（默认 `allow`）给出。`npm run eval` 会按语言输出
+  当前的误报率/漏报率（语料见 `tests/fixtures/adversarial-samples.js`）。
 - **脱敏类型有限**：仅覆盖列出的 PII 类型；中文姓名、地址等上下文敏感 PII **不**覆盖
   （需要 NER，见 Roadmap）。
 - **审计是姿态快照**：固定 11 项检查；报告自带 `limitations` 字段声明未覆盖范围。
@@ -282,7 +311,7 @@ const classifier = {
   - 会话文件 PII 采样默认 ≤10 个文件；大目录请调 `sampleLimit`。
   - 在线 `deps-supply-chain` registry 查询为**可选开启**（`supplyChainLive: true`），
     会把已装插件名+版本发送到 registry.npmjs.org；默认离线清单。
-- **兼容性**：在 `@deepseek-ai/dsh-tools` 0.1.2-rc.1 的注册/执行契约上验证；DSH pre-1.0，
+- **兼容性**：见顶部[兼容性](#兼容性)；`host-compat` CI 任务逐版本验证，DSH pre-1.0，
   升级任一侧后请重跑 `security_audit` 并回测。
 - **法律**：MIT “as is” 无担保；非官方第三方工具，与 DeepSeek 无关（见顶部声明）。
 
@@ -291,11 +320,11 @@ const classifier = {
 ```bash
 npm install          # 安装测试所需 peer 依赖
 npm test             # node --test（自动发现 tests/*.test.js）
-npm run eval         # 对抗样本库上的检测质量指标（precision/recall/F1，CI 运行）
+npm run eval         # 对抗样本库检测质量（precision/recall/F1、中英误报/漏报率、长文本 p95，CI 运行）
 ```
 
 测试覆盖：redact（每种 PII、自定义掩码、modes 过滤、截断、订单号误报样本）、
-injection（规则、LRU、预算失败开放、allowlist、分类器降级、混淆对抗层、
+injection（规则、双层缓存命中、截断/预算策略、allowlist、分类器降级、混淆对抗层、
 `tests/fixtures/adversarial-samples.js` 对抗样本库——每个新规则都必须配套用例）、
 audit（报告形状、确定性、只读保证、证据脱敏、占位符跳过、路径归一、profile 档位、
 供应链检查、host-capabilities、/proc 解析、OWASP 字段）、logger（JSONL、requestId、
@@ -323,7 +352,8 @@ gh repo edit --add-topic dsh-plugin
 核对贡献者署名和实际资产 SHA-256 后发布，由 npm Trusted Publishing
 （OIDC）上传。tag 不可变，回归以新版本修复。
 
-0.2.13 的检查结果与后续优化方向见 [代码检查记录](docs/review-2026-10-24.md)。
+0.3.0 的检查结果与后续优化方向见 [代码检查记录（2026-11-02）](docs/review-2026-11-02.md)；
+0.2.13 的记录见 [上一份](docs/review-2026-10-24.md)。
 
 ## Roadmap
 

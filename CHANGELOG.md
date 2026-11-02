@@ -6,6 +6,81 @@ Format: **Added / Fixed / Upgrade notes / Known issues**. Versioning follows
 SemVer; 0.x releases mean the plugin API is not yet stable and minor versions
 may introduce breaking changes.
 
+## [0.3.0] - 2026-11-02
+
+Detection-engine semantics release: incomplete coverage is now an explicit
+state, and the two numbers that `confidence` used to mix are separated.
+
+### Added
+
+- **`scanComplete`** on every scan result: `false` when the input was truncated
+  at `scanMaxLength` or the cooperative budget expired. An incomplete `allow`
+  is no longer indistinguishable from a clean one.
+- **`onTruncate: allow|review|block`** (default `allow`): decision floor for
+  oversized input. It never downgrades hits found in the scanned prefix, and
+  truncated input is no longer sent to the model classifier (the model would
+  only see the prefix).
+- **`riskScore` / `decisionConfidence`**: `riskScore` is the rule layer's
+  severity evidence (0..1); `decisionConfidence` is certainty in the reported
+  decision — the classifier's own confidence when it contributed, otherwise
+  the rule score's support for that decision, and 0 when `scanComplete` is
+  false. `confidence` remains as a deprecated alias of `riskScore`.
+- **Split rule/model caches**: the rule cache keys on text only, so a per-call
+  `requestId` no longer defeats caching; model verdicts cache under a
+  classifier-declared key (`cacheKeyFor`, role-only for the built-in Ollama
+  adapter). New `ruleCacheHit` output plus `modelSize` / `modelHits` /
+  `modelMisses` stats.
+- **Expanded evaluation corpus**: 64 labelled samples (30 attacks / 34 benign;
+  43 en / 21 zh) covering ordinary code and ops work, security education,
+  quoted-attack accepted false positives, obfuscation combinations, and
+  120k–199k-character documents with tail attacks. `npm run eval` now reports
+  per-language false-positive / false-negative rates and long-text p50/p95
+  latency in addition to precision/recall/F1.
+- **`host-compat` CI job**: installs six real `@deepseek-ai/dsh-tools` versions
+  (0.1.0-rc.6, 0.1.2-rc.1, 0.1.7-rc.2, 0.2.0-rc.2, 0.2.1-rc.5, 0.2.2-alpha.2)
+  and runs the registration / execution / output-schema contract against each.
+
+### Fixed
+
+- A confident SAFE classifier verdict no longer overwrites the risk score, so
+  it can no longer push `riskLevel` to `high` on weak rule evidence.
+- Enabling the classifier no longer disables the scan cache for tool calls
+  that pass `requestId`: repeatedly scanning the same text now reuses both the
+  rule pass and (for the built-in adapter) the model verdict.
+- Rule false positives (ruleset **v6**): scoped "delete all files in the build
+  directory" no longer blocks, "you are now ready/able/…" is no longer a
+  persona switch, and Chinese security write-ups mentioning 越狱手法 or a
+  descriptive 可绕过安全机制 no longer flag.
+- Truncated scans no longer return a bare `allow`; `scanComplete`, the
+  `onTruncate` floor and a named-policy warning are always reported. When
+  truncation and budget expiry coincide, the stricter policy wins.
+
+### Upgrade notes
+
+- `confidence` is a deprecated alias of `riskScore` and is no longer written by
+  the classifier. Consumers that read it as "certainty in the decision" must
+  switch to `decisionConfidence`; consumers that used it as a risk score keep
+  working. Classifier-assisted allows now report rule evidence (the intended
+  correction).
+- `riskLevel` is derived from rule severities plus the final decision band,
+  not from a mixed score.
+- The peer range now explicitly covers the 0.1.6 / 0.1.7 / 0.2.1 / 0.2.2 lines;
+  every published `@deepseek-ai/dsh-tools` version from 0.1.0-rc.6 is satisfied
+  under both strict and `includePrerelease` semver checks.
+- Defaults stay fail-open (`onTimeout` / `onTruncate` = `allow`). Sensitive
+  flows should set `review` / `block` and route on `scanComplete`.
+- Tested against six host versions in CI; a complete live DSH host was not
+  exercised. Rollback is possible by pinning 0.2.13.
+
+### Known issues
+
+- Quoted attack text is still flagged (accepted false positive, counted in the
+  eval FP rate): the heuristic cannot tell a quotation from a live instruction.
+- Detection remains heuristic; Windows ACLs are not inspected, session coverage
+  is sampled and budgeted, and names/addresses need additional PII handling.
+- See [the review report](docs/review-2026-11-02.md) for findings and
+  validation.
+
 ## [0.2.13] - 2026-10-24
 
 ### Added

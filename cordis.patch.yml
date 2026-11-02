@@ -16,9 +16,11 @@
 #     scanTimeoutMs: 100        # cooperative scan budget (ms); on expiry the decision follows onTimeout
 #     onTimeout: allow          # policy on budget expiry: allow (fail-open) / review / block (fail-closed)
 #     scanMaxLength: 200000     # hard cap on scanned text length
-#     cacheSize: 512            # LRU entries for identical scan inputs
-#     blockThreshold: 0.8
-#     reviewThreshold: 0.5
+#     onTruncate: allow         # decision floor when input exceeds scanMaxLength: allow / review / block
+#                               # (never downgrades prefix hits; scanComplete is false either way)
+#     cacheSize: 512            # LRU entries per cache layer (rule cache + model cache)
+#     blockThreshold: 0.8       # riskScore >= -> block
+#     reviewThreshold: 0.5      # riskScore >= -> review
 #     allowlist: []             # rule ids always downgraded to "allow" (appeal channel)
 #     maskChar: "*"
 #     logEnabled: true          # set false to silence the structured JSONL event log

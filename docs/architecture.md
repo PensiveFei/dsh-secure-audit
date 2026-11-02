@@ -9,7 +9,8 @@ meta-security constraints that shape the code.
 ```
 index.js                 Cordis plugin entry: registers 4 tools + 1 runtime skill
 lib/rules.js             Pure data: injection rule table + PII pattern table
-lib/injection.js         Rule engine: LRU cache, budget timeout, onTimeout policy,
+lib/injection.js         Rule engine: split rule/model caches, coverage policies
+                         (onTimeout / onTruncate), riskScore + decisionConfidence,
                          riskLevel + inputSha256 output, classifier hook
 lib/redact.js            PII redaction engine (regex + structural validation)
                          + redactJson (recursive sensitive-key redaction)
@@ -30,42 +31,60 @@ runtime).
 **Rule + model dual engine.** Rules run first (low latency, deterministic,
 cheap); a model classifier runs only when the rules are inconclusive.
 
-- **Scoring.** Confidence = severity-weighted sum of distinct rule hits,
-  capped at 1. Any critical hit floors confidence at 0.9. Thresholds
-  (`reviewThreshold` / `blockThreshold`) map confidence to `allow` / `review`
-  / `block`.
+- **Scoring.** `riskScore` = severity-weighted sum of distinct rule hits,
+  capped at 1. Any critical hit floors it at 0.9. Thresholds
+  (`reviewThreshold` / `blockThreshold`) map the score to `allow` / `review` /
+  `block`. `confidence` is a deprecated alias of `riskScore`.
+- **Two confidences, separated (0.3.0).** `riskScore` is rule evidence and is
+  never written by the model. `decisionConfidence` is certainty in the reported
+  decision: the classifier's own `confidence` when it contributed, otherwise
+  the rule score's support for that decision (`riskScore` for review/block,
+  `1 − riskScore` for allow), and 0 whenever `scanComplete` is false.
 - **Rules.** English + Chinese pattern table (`lib/rules.js`) tuned against an
   adversarial sample library (`tests/fixtures/adversarial-samples.js`), which
   doubles as the regression suite in CI. Benign-vocabulary cases
   ("act as a senior reviewer", "jailbreak detection", "build a bomb shelter",
-  "运行命令 npm install", "你现在是怎么想的") are pinned to `allow`.
-- **Obfuscation-resistance layer (ruleset v4).** Plain-text rules are dodged by
-  zero-width characters, full-width / Cyrillic homoglyphs, and base64 payloads,
-  so the scanner derives up to 4 bounded variants per input: the raw subject, a
-  normalized copy (zero-width stripped; `Ｉｇｎｏｒｅ`/`previоus` mapped to ASCII),
-  and base64-decoded candidates (printable-gate filtered, ≤ 4 tokens of ≤ 4 KB).
-  Hits are merged per distinct rule id (first variant wins), each reason carries
-  `via` (`plain` | `normalized` | `base64`), and the shared cooperative budget
-  still bounds total work — more variants mean fewer rules scanned, never
-  unbounded decode. `inputSha256` is over the raw subject, so replay is stable.
-- **LRU cache.** SHA-256(text) + `RULESET_VERSION` key; identical inputs skip
-  re-scanning. `RULESET_VERSION` is bumped whenever rule semantics change so
-  stale cached verdicts cannot survive an upgrade.
-- **Fail-open budget (configurable).** A cooperative timeout checks
-  wall-clock between rules; on expiry the decision follows `onTimeout`
-  (`allow` fail-open default / `review` / `block` fail-closed), reasons
-  are dropped (the scan was incomplete), confidence is 0, and an explicit
-  warning names the applied policy — "not scanned", never "safe". Truncation
-  behaves the same way.
+  "delete all files in the build directory", "运行命令 npm install",
+  "你现在是怎么想的", security write-ups mentioning 越狱手法) are pinned to
+  `allow`; quoted attack text is pinned to `review` and labelled as an accepted
+  false positive.
+- **Obfuscation-resistance layer (ruleset v4, current ruleset v6).** Plain-text
+  rules are dodged by zero-width characters, full-width / Cyrillic homoglyphs,
+  and base64 payloads, so the scanner derives up to 4 bounded variants per
+  input: the raw subject, a normalized copy (zero-width stripped;
+  `Ｉｇｎｏｒｅ`/`previоus` mapped to ASCII), and base64-decoded candidates
+  (printable-gate filtered, ≤ 4 tokens of ≤ 4 KB). Hits are merged per distinct
+  rule id (first variant wins), each reason carries `via` (`plain` |
+  `normalized` | `base64`), and the shared cooperative budget still bounds
+  total work — more variants mean fewer rules scanned, never unbounded decode.
+  `inputSha256` is over the raw subject, so replay is stable.
+- **Split caches (0.3.0).** The rule cache keys on SHA-256(text) +
+  `RULESET_VERSION` only — the rule table never reads the caller's context, so
+  a per-call `requestId` cannot defeat it. Model verdicts live in a second
+  cache keyed by text + the classifier's declared `cacheKeyFor` (role-only for
+  the built-in Ollama adapter); a custom classifier with no declared key is
+  cached only for a role-only plain context. Only complete rule passes and
+  well-formed model verdicts are cached. `RULESET_VERSION` is bumped whenever
+  rule semantics change so stale verdicts cannot survive an upgrade.
+- **Incomplete coverage is explicit (0.3.0).** `scanComplete` is false when the
+  input exceeded `maxLength` or the cooperative budget expired. Truncation
+  applies `onTruncate` (`allow` default / `review` / `block`) as a decision
+  floor — never a downgrade of prefix hits — and skips the model, which would
+  only see the prefix. Budget expiry drops the partial reasons, follows
+  `onTimeout`, and sets `decisionConfidence` to 0. When both happen the stricter
+  policy wins, and a warning names the applied policy — "not scanned", never
+  "safe".
 - **Risk level.** `riskLevel` (low/medium/high) is derived from the highest
-  hit severity plus the decision band, giving policies a coarse routing input
-  without interpreting raw confidence.
+  hit severity plus the final decision band, giving policies a coarse routing
+  input without interpreting raw scores.
 - **Replayable decisions.** Every scan result carries `inputSha256` (the
   scanned text's digest) so a decision can be replayed locally with the same
   ruleset version.
 - **Classifier hook.** `{ classify(text, context) → {decision?, confidence?} }`
-  is invoked only on `review` verdicts without critical hits, under its own
-  timeout, and its failure degrades to the rule decision with a warning.
+  is invoked only on complete `review` verdicts without critical hits, under
+  its own timeout, and its failure degrades to the rule decision with a
+  warning. Its `confidence` means certainty in its own verdict and is reported
+  as `decisionConfidence`, never as `riskScore`.
 - **Redacted evidence.** Every reason snippet is single-line, control-char
   stripped, PII-masked, and length-capped.
 

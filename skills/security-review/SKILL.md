@@ -27,17 +27,19 @@ to echo raw secrets.
    use only the `redacted` output. For random-looking tokens (API keys without
    a known prefix), pass `modes: ['high_entropy']` to the redactor.
 2. **Interpret, do not just echo.** Explain the decision in plain language:
-   - `block` — one or more high-confidence rules hit; name the rules
+   - `block` — one or more high-severity rules hit; name the rules
      (`ruleId`, `severity`) and quote only the redacted snippet.
    - `review` — ambiguous; say which rules fired and what would escalate it.
-   - `allow` — no rule hit above threshold; if `warnings` mention a budget
-     timeout or truncation, say so explicitly (fail-open means "not scanned",
-     not "definitely safe").
-   - Also report the `riskLevel` (low/medium/high) when the user asks how
-     severe the finding is. A `block` with `riskLevel: high` is the
-     strongest signal; an `onTimeout: block` verdict means the scan did not
-     finish but the flow chose to fail closed — say so, do not present it as a
-     complete scan.
+   - `allow` — no rule hit above threshold. Check `scanComplete` first: when it
+     is `false`, say explicitly that the scan did not cover the whole input
+     (fail-open means "not scanned", not "definitely safe").
+   - Quote `riskScore` as the rule evidence and `decisionConfidence` as how
+     sure the decision is — do not present `confidence` (deprecated alias of
+     `riskScore`) as certainty. Report `riskLevel` (low/medium/high) when the
+     user asks how severe the finding is. A `block` with `riskLevel: high` is
+     the strongest signal; a policy-forced `block` via `onTimeout` /
+     `onTruncate` means the scan did not finish but the flow chose to fail
+     closed — say so, do not present it as a complete scan.
 3. **Transparency & appeal.** Never silently reject. Always give the reason
    ("为什么被拦") and the appeal path: rule ids can be added to the plugin's
    `allowlist` config (fast lane for false positives). If the user disputes a
